@@ -3861,6 +3861,6 @@ heat_limit=320)。若直接信裁判值,允许功率会比规则宽 30W。
 - 隔离：编译期排除大 yaw 角度环、速度环和力矩输出分支；标定 sweep 被立即撤销，台架 test mode 不能绕过反馈-only 门控。PID 状态每拍清零。
 - 保留：大 yaw CAN 解码、在线状态、采样时间和 USB NV v1 角度回传保持运行；pitch、小 yaw 和原遥控安全仲裁未改。
 - 验证：13 个相关生产 C 文件通过主机语法检查；feedback-only/drive-enabled 在 `-O0`、`-Ofast -flto` 四组协议测试通过。GNU Arm Embedded 14.3.1 全量编译链接通过，FLASH 118344 B（11.29%）、RAM 73832 B（56.33%）、CCMRAM 54944 B（83.84%）。
-- 固件：未跟踪的 `firmware/current.elf` SHA256 为 `BD4B55617B9B2C4B7EE9275329ED97AEE4ECE3790C226660D35C1D0DEFB6BE85`。
+- 固件：未跟踪的 `firmware/current.elf` SHA256 为 `69F61806D192FF1FA734AEEC8C773D17F8663ACF8277438D09AD352C15CD803A`。
 - 边界：本次只改源码、配置和文档并完成 ARM 编译；不烧录、不让实车电机产生控制力矩。
 - AI：OpenAI Codex，2026-11-26。
