@@ -17,6 +17,10 @@
 `SENTRY_AUTONOMY_ENABLE=0` 时导航速度在命令出口整帧清零，不进入底盘 PID。
 详见 DEV-20261126-LOCAL-YAW-FEEDBACK。
 
+同日增加大 yaw DM 反馈-only 使能：保持 CAN/MIT 通信在线，但所有 MIT 增益与
+力矩为零，并从编译期隔离大 yaw PID、测试动作和标定扫动。详见
+DEV-20261126-LOCAL-BIG-YAW-ENABLE。
+
 ## 0. AI 冷启动摘要
 
 <!-- AI 会话开始时只读本节即可接手;只放结论与链接,证据留在对应条目。人工接手同样建议先读这里。 -->
@@ -3848,4 +3852,15 @@ heat_limit=320)。若直接信裁判值,允许功率会比规则宽 30W。
 - ARM 编译：GNU Arm Embedded 14.3.1 全量编译链接通过；FLASH 119916 B/1 MiB（11.44%），RAM 73840 B/128 KiB（56.34%），CCMRAM 54944 B/64 KiB（83.84%）。生成未跟踪的 `firmware/current.elf`，SHA256 为 `EB07C4B505067EB6C0957ADDCEFE57628D8702057DC656ED706978B103F62E8F`；仅有工程既有 gimbal 未使用变量、newlib syscall 桩和 CMake COMMENT 警告。
 - 文档：同步更新 `README.md` 与 `NAVIGATION_USB.md`，明确只读固件和后续放行条件。
 - 边界：本次只改源码、测试和文档并完成 ARM 编译；不烧录、不启动实车底盘或发射机构。构建目录和固定 ELF 副本已加入忽略规则，不进入 Git。
+- AI：OpenAI Codex，2026-11-26。
+
+## DEV-20261126-LOCAL-BIG-YAW-ENABLE — 大 yaw DM 反馈-only 使能
+
+- 目标：使能大 yaw DM-J4310 的 CAN/MIT 通信以持续获得角度反馈，同时不让任何大 yaw PID 或测试动作产生力矩。
+- 配置：新增 `SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=1`。初始化和零力路径保持 DM 软件使能，MIT 位置、速度和力矩参考均为 0，驱动器 Kp/Kd 沿用初始化值 0。
+- 隔离：编译期排除大 yaw 角度环、速度环和力矩输出分支；标定 sweep 被立即撤销，台架 test mode 不能绕过反馈-only 门控。PID 状态每拍清零。
+- 保留：大 yaw CAN 解码、在线状态、采样时间和 USB NV v1 角度回传保持运行；pitch、小 yaw 和原遥控安全仲裁未改。
+- 验证：13 个相关生产 C 文件通过主机语法检查；feedback-only/drive-enabled 在 `-O0`、`-Ofast -flto` 四组协议测试通过。GNU Arm Embedded 14.3.1 全量编译链接通过，FLASH 118344 B（11.29%）、RAM 73832 B（56.33%）、CCMRAM 54944 B（83.84%）。
+- 固件：未跟踪的 `firmware/current.elf` SHA256 为 `BD4B55617B9B2C4B7EE9275329ED97AEE4ECE3790C226660D35C1D0DEFB6BE85`。
+- 边界：本次只改源码、配置和文档并完成 ARM 编译；不烧录、不让实车电机产生控制力矩。
 - AI：OpenAI Codex，2026-11-26。

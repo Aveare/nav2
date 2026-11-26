@@ -21,6 +21,7 @@
 
 #define SENTRY_BIG_YAW_DM_ID 5         /* [实测-参考] 大 yaw DM 控制 ID,CAN1 */
 #define SENTRY_BIG_YAW_DM_MASTER_ID 0  /* [实测-参考] 大 yaw 反馈 Master ID */
+#define SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE 1 /* [配置] 1=使能 DM 回传,但强制零 MIT 增益/力矩且禁用 PID */
 #define SENTRY_PITCH_DM_ID 5           /* [实测-参考] pitch DM 控制 ID,CAN2 */
 #define SENTRY_PITCH_DM_MASTER_ID 0    /* [实测-参考] pitch 反馈 Master ID */
 #define SENTRY_SMALL_YAW_ESC_ID 1      /* [实测-参考] GM6020 拨码 ID,CAN2 */

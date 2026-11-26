@@ -104,6 +104,21 @@ static float gimbal_pitch_joint_deg(void)
     return joint_rad * FW_RAD_TO_DEG;
 }
 
+/**
+ * @brief 使能大 yaw 的 DM 反馈，同时强制 MIT 控制量为零
+ * @note 安全:反馈-only 模式不得给位置、速度或力矩控制量。
+ */
+static void gimbal_enable_big_yaw_feedback_only(void)
+{
+    if (big_yaw_motor == NULL)
+        return;
+    dm_motor_enable(big_yaw_motor);
+    dm_motor_set_mit_angle(big_yaw_motor, 0.0f);
+    dm_motor_set_mit_speed(big_yaw_motor, 0.0f);
+    dm_motor_set_mit_torque(big_yaw_motor, 0.0f);
+    big_yaw_torque_nm = 0.0f;
+}
+
 /* 世界 yaw(W_big)与角速度:按 IMU 安装位置扣除小 yaw 分量 */
 static void gimbal_big_yaw_world(float *world_deg, float *world_rate_deg_s, float imu_yaw_deg,
                                  float imu_yaw_rate_deg_s, float small_rel_deg, float small_rate_deg_s)
@@ -136,7 +151,13 @@ void gimbal_init(void)
     };
     big_yaw_motor = dm_motor_mit_init(&big_yaw_config);
     if (big_yaw_motor != NULL)
+    {
+#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
+        gimbal_enable_big_yaw_feedback_only();
+#else
         dm_motor_stop(big_yaw_motor);
+#endif
+    }
 
     /* pitch:DM-J4310,CAN2,控制 ID 5 / Master 0,MIT 力矩 */
     dm_motor_mit_init_config_t pitch_config = {
@@ -257,7 +278,13 @@ void gimbal_init(void)
 static void gimbal_apply_zero_force(void)
 {
     if (big_yaw_motor != NULL)
+    {
+#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
+        gimbal_enable_big_yaw_feedback_only();
+#else
         dm_motor_stop(big_yaw_motor);
+#endif
+    }
     if (pitch_motor != NULL)
         dm_motor_stop(pitch_motor);
     if (small_yaw_motor != NULL)
@@ -278,6 +305,12 @@ static void gimbal_apply_zero_force(void)
  * 只在零力态被调用,±20°、5°/s、1.5 N·m 限幅,超范围/超时自动中止。 */
 static void gimbal_cal_sweep_step(float now_ms, float imu_yaw_deg)
 {
+#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
+    (void)now_ms;
+    (void)imu_yaw_deg;
+    gimbal_cal_sweep = 0u;
+    gimbal_enable_big_yaw_feedback_only();
+#else
     static float t_start = -1.0f;
     static float pos_start = 0.0f;
     static float imu_start = 0.0f;
@@ -351,6 +384,7 @@ static void gimbal_cal_sweep_step(float now_ms, float imu_yaw_deg)
                  (int)(target * 1000.0f), (int)(imu_yaw_deg * 100.0f),
                  (int)(big_yaw_motor->measure.velocity * 1000.0f));
     }
+#endif
 }
 
 void gimbal_task(void)
@@ -515,11 +549,16 @@ void gimbal_task(void)
         float big_target_world;
         sentry_gimbal_allocate(target_world, big_yaw_world_deg, small_limit, &small_target,
                                &big_target_world);
-        const float big_err = sentry_gimbal_wrap180(big_target_world - big_yaw_world_deg);
-
         /* 4. 大 yaw 角度环 → 速度环 → 力矩 */
         if (big_yaw_motor != NULL)
         {
+#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
+            (void)big_target_world;
+            gimbal_enable_big_yaw_feedback_only();
+            pid_clear(&big_yaw_angle_pid);
+            pid_clear(&big_yaw_speed_pid);
+#else
+            const float big_err = sentry_gimbal_wrap180(big_target_world - big_yaw_world_deg);
             dm_motor_enable(big_yaw_motor);
             if (gimbal_dm_online(big_yaw_motor))
             {
@@ -542,6 +581,7 @@ void gimbal_task(void)
                 pid_clear(&big_yaw_angle_pid);
                 pid_clear(&big_yaw_speed_pid);
             }
+#endif
         }
 
         /* 5. pitch 角度环 → 速度环 → 力矩 + 重力前馈(模式 1/2 断电,模式 3 用测试目标) */
