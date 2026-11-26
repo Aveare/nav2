@@ -26,7 +26,7 @@
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 
-#include <../../BehaviorTree.ROS2/behaviortree_ros2/include/behaviortree_ros2/bt_action_node.hpp>
+#include <behaviortree_ros2/bt_action_node.hpp>
 
 // ======================== 资源路径解析（可移植） ========================
 // 原始代码在行为树 XML / 参数里写死了作者机器上的绝对路径
