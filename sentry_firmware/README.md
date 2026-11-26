@@ -4,7 +4,7 @@
 
 基于跃鹿 [basic_framework](https://github.com/HNUYueLuRM/basic_framework) 起步、2026 年完成自研框架升级的 **STM32F407IGHx + FreeRTOS 单板哨兵工程**。
 现行分层为 `apps → components → framework → ports → HAL`(方案 `.Doc/plan/自主研发框架升级总方案.md`;B0a~B12 已收口,见 `RM_DEVLOG.md` DEV-20261122-21/22/23);
-哨兵整车含底盘、三轴云台、17 mm 发射和遥控/键鼠仲裁;AX650 自瞄当前关闭,上位机通过独立 USB CDC 虚拟串口使用 `NV v1` 导航协议;三轴零位、方向和 PID 仍以 `[待实测]` 证据等级管理。
+哨兵整车含底盘、三轴云台、17 mm 发射和遥控/键鼠仲裁;旧 AX650 USART1 链路关闭,上位机通过独立 USB CDC 虚拟串口共用 `NV v1` 导航帧与 RMCV `0x1021/0x0503` 自瞄帧。当前 `0x0503` 仅解析保存、尚未接入哨兵云台/发射控制,完整协议状态见 `.Doc/spec/NUC-STM32导航与自瞄USB串口协议.md`;三轴零位、方向和 PID 仍以 `[待实测]` 证据等级管理。
 
 > **接手顺序**:本文件 → `RM_DEVLOG.md` §0(AI 冷启动摘要) → `.Doc/README.md`(文档总索引)。
 > **协作契约**:`AGENTS.md`(工程地图/禁区/检查与证据);症状→代码定位见 `.agents/skills/rm-electrical-dev/references/code-map.md`。

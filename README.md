@@ -30,7 +30,7 @@
 map → odom → base_link → big_yaw_link → livox_frame
 ```
 
-倒装雷达安装为 XYZ=(-0.053, 0, 0.474) m、roll=π。导航每轴限速 0.35 m/s、角速度上限 0.5 rad/s；斜向合速度可达约 0.50 m/s。导航 USB 协议、采样时间和失效处理见 `sentry_firmware/NAVIGATION_USB.md`、`src/cod_nuc_bringup/HARDWARE_FRAMES.md`；自瞄 USB CDC 的收发字段、ROS 话题和单串口网关约束见 `sentry_firmware/AUTOAIM_USB_PROTOCOL.md`。
+倒装雷达安装为 XYZ=(-0.053, 0, 0.474) m、roll=π。导航每轴限速 0.35 m/s、角速度上限 0.5 rad/s；斜向合速度可达约 0.50 m/s。导航与自瞄共用 USB CDC 的完整消息清单、采样时间、ROS 映射、失效处理和未实现扩展见 `sentry_firmware/.Doc/spec/NUC-STM32导航与自瞄USB串口协议.md`；分域说明保留在 `sentry_firmware/NAVIGATION_USB.md`、`sentry_firmware/AUTOAIM_USB_PROTOCOL.md` 和 `src/cod_nuc_bringup/HARDWARE_FRAMES.md`。
 
 现场地图中心点的首次记录、按地图分别保存和每日 RViz 显示流程见 [现场中心点工具](src/cod_nuc_bringup/tools/center_point/README.md)。该工具只发布 Marker 和中心位姿，不会发送导航目标或速度。
 
