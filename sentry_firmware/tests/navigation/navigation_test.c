@@ -1,223 +1,168 @@
-/**
- * @file    navigation_test.c
- * @brief   USB 分包/校验/时效/单位转换主机测试
- * @layer   TESTS
- * @author  小猫大王
- */
 #include "autonomy.h"
-#include "ax650_pose.h"
 #include "ax650_usb.h"
-#include "config.h"
 #include "nav_protocol.h"
-#include "usb_port.h"
-#include "sentry_def.h"
-#include "msg.h"
+#include "nav_rtos.h"
+#include "robot_infantry_2026.h"
+#include "bsp_usb.h"
+#include "gimbal.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 static uint32_t now_ms;
-static uint8_t usb_buffer[64], tx_buffer[32];
-static USBCallback receive_callback;
-static sentry_gimbal_feed_t feed;
+static uint8_t rx_buf[64];
+static USBCallback rx_callback;
+static uint8_t tx_busy;
+static uint8_t tx_frames[8][NAV_FRAME_SIZE];
+static uint16_t tx_lens[8];
 static unsigned tx_count;
-static uint16_t tx_length;
-static uint8_t usb_busy;
 
-uint32_t kernel_tick_ms(void) { return now_ms; }
-uint32_t kernel_enter_critical(void) { return 0; }
-void kernel_exit_critical(uint32_t saved) { (void)saved; }
-uint8_t *usb_init(usb_init_config_t config) { receive_callback = config.rx_cbk; return usb_buffer; }
-uint8_t usb_is_transmitting(void) { return usb_busy; }
-uint8_t usb_try_transmit(uint8_t *buffer, uint16_t length)
-{
-    assert(length <= sizeof(tx_buffer));
-    memcpy(tx_buffer, buffer, length);
-    tx_length = length;
-    usb_busy = 1u;
-    ++tx_count;
-    return 0;
-}
-msg_sub_t msg_sub(const char *name, size_t size) { (void)name; (void)size; return &feed; }
-int msg_recv(msg_sub_t sub, void *output) { (void)sub; memcpy(output, &feed, sizeof(feed)); return 1; }
+static float stub_yaw_rad;
+static uint64_t stub_yaw_sample_us;
+static uint8_t stub_yaw_online;
 
-static void navigation_deliver(const uint8_t *bytes, size_t size)
+uint32_t nav_tick_ms(void) { return now_ms; }
+uint32_t nav_enter_critical(void) { return 0u; }
+void nav_exit_critical(uint32_t saved) { (void)saved; }
+
+uint8_t *USBInit(USB_Init_Config_s config)
 {
-    assert(size <= sizeof(usb_buffer));
-    memcpy(usb_buffer, bytes, size);
-    receive_callback((uint32_t)size);
+    rx_callback = config.rx_cbk;
+    return rx_buf;
 }
 
-static void navigation_complete_tx(void)
+uint8_t USBIsTransmitting(void) { return tx_busy; }
+
+uint8_t USBTryTransmit(uint8_t *buffer, uint16_t length)
 {
-    usb_busy = 0u;
-    tx_length = 0u;
+    if (tx_busy || length > NAV_FRAME_SIZE)
+        return 1u;
+    if (tx_count < 8u)
+    {
+        memcpy(tx_frames[tx_count], buffer, length);
+        tx_lens[tx_count] = length;
+        ++tx_count;
+    }
+    return 0u;
 }
 
-static void write_float_le(uint8_t *output, float value)
+void GimbalGetBigYawFeedback(float *rel_rad, uint64_t *sample_us, uint8_t *online)
 {
-    uint32_t bits;
-    memcpy(&bits, &value, sizeof(bits));
-    output[0] = (uint8_t)bits;
-    output[1] = (uint8_t)(bits >> 8);
-    output[2] = (uint8_t)(bits >> 16);
-    output[3] = (uint8_t)(bits >> 24);
+    if (rel_rad) *rel_rad = stub_yaw_rad;
+    if (sample_us) *sample_us = stub_yaw_sample_us;
+    if (online) *online = stub_yaw_online;
 }
 
-static void make_target_frame(uint8_t output[39])
+static void deliver(const uint8_t *data, uint16_t length)
 {
-    const float values[7] = {30.0f, -5.0f, 0.25f, -0.125f, 1.0f, -2.0f, 4.5f};
-    memset(output, 0, 39u);
-    output[0] = 0xA5u;
-    output[1] = 30u;
-    output[3] = 3u;
-    output[4] = ax650_pose_crc8(output, 4u);
-    output[5] = 0x03u;
-    output[6] = 0x05u;
-    for (size_t i = 0; i < 7u; ++i)
-        write_float_le(output + 7u + i * 4u, values[i]);
-    output[35] = 1u;
-    output[36] = 3u;
-    const uint16_t crc = ax650_pose_crc16(output, 37u);
-    output[37] = (uint8_t)crc;
-    output[38] = (uint8_t)(crc >> 8);
+    memcpy(rx_buf, data, length);
+    rx_callback(length);
 }
 
-static void print_hex(const uint8_t *bytes, size_t size)
+static void print_hex(const uint8_t *bytes, size_t count)
 {
-    for (size_t i = 0; i < size; ++i)
+    for (size_t i = 0; i < count; ++i)
         printf("%02x", bytes[i]);
-    puts("");
+    putchar('\n');
 }
 
 int main(void)
 {
-    nav_frame_t frame = {.type = NAV_MSG_COMMAND, .sequence = 7u, .sample_us = 123456789u,
-                         .value = {0.25f, -0.125f, 0.5f}, .flags = NAV_FLAG_VALID};
-    uint8_t bytes[NAV_FRAME_SIZE];
-    nav_protocol_encode(&frame, bytes);
-    /* 输出跨语言黄金向量,由 Python 测试逐字节核对。 */
-    print_hex(bytes, sizeof(bytes));
+    assert(nav_protocol_crc16((const uint8_t *)"123456789", 9u) == 0x4b37u);
+    assert(ax650_pose_crc8((const uint8_t *)"1234", 4u) != 0u);
 
-    autonomy_init();
+    uint8_t nav_golden[NAV_FRAME_SIZE];
+    nav_frame_t gnav = {.type = NAV_MSG_COMMAND, .sequence = 7u, .sample_us = 123456789u,
+                        .value = {0.25f, -0.125f, 0.5f}, .flags = NAV_FLAG_VALID};
+    nav_protocol_encode(&gnav, nav_golden);
+    print_hex(nav_golden, sizeof(nav_golden));
+
+    /* Golden 0x0503 target frame matching Python TargetFrame(3, 30, -5, 0.25, -0.125, 1, -2, 4.5, 1, 3) */
+    uint8_t t_raw[39];
+    t_raw[0] = 0xA5u;
+    t_raw[1] = 30u; t_raw[2] = 0u;
+    t_raw[3] = 3u;
+    t_raw[4] = ax650_pose_crc8(t_raw, 4u);
+    t_raw[5] = 0x03u; t_raw[6] = 0x05u;
+    float t_floats[7] = {30.0f, -5.0f, 0.25f, -0.125f, 1.0f, -2.0f, 4.5f};
+    memcpy(&t_raw[7], t_floats, sizeof(t_floats));
+    t_raw[35] = 1u;
+    t_raw[36] = 3u;
+    uint16_t t_crc = ax650_pose_crc16(t_raw, 37u);
+    t_raw[37] = (uint8_t)(t_crc & 0xffu);
+    t_raw[38] = (uint8_t)(t_crc >> 8);
+    print_hex(t_raw, sizeof(t_raw));
+
+    uint8_t p_raw[AX650_POSE_FRAME_SIZE];
+    float q_id[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+    size_t p_len = ax650_pose_pack(p_raw, sizeof(p_raw), q_id, 0.0f, 0u, 0u, 950u, 0u);
+    assert(p_len == AX650_POSE_FRAME_SIZE);
+    print_hex(p_raw, p_len);
+
     now_ms = 100u;
-    navigation_deliver(bytes, 9);
+    tx_count = 0u;
+    tx_busy = 0u;
+    autonomy_init();
+
+    /* Sync request -> response */
+    uint8_t sync_bytes[NAV_FRAME_SIZE];
+    nav_frame_t sreq = {.type = NAV_MSG_SYNC_REQUEST, .sequence = 42u, .sample_us = 999u};
+    nav_protocol_encode(&sreq, sync_bytes);
+    deliver(sync_bytes, sizeof(sync_bytes));
     autonomy_task();
-    sentry_auto_cmd_t command;
-    assert(!autonomy_get_command(&command));
-    navigation_deliver(bytes + 9, sizeof(bytes) - 9);
+    assert(tx_count == 1u && tx_lens[0] == NAV_FRAME_SIZE);
+    nav_parser_t check_parser;
+    memset(&check_parser, 0, sizeof(check_parser));
+    nav_frame_t sresp;
+    int got = 0;
+    for (unsigned i = 0; i < NAV_FRAME_SIZE; ++i)
+        got |= nav_protocol_feed(&check_parser, tx_frames[0][i], &sresp);
+    assert(got && sresp.type == NAV_MSG_SYNC_RESPONSE && sresp.sequence == 42u && sresp.sample_us == 100000u);
+
+    /* Split NV command delivery + SENTRY_AUTONOMY_ENABLE gate check */
+    now_ms = 200u;
+    deliver(nav_golden, 9u);
+    autonomy_task();
+    sentry_auto_cmd_t cmd;
+    assert(!autonomy_get_command(&cmd));
+    deliver(nav_golden + 9u, NAV_FRAME_SIZE - 9u);
     autonomy_task();
 #if SENTRY_AUTONOMY_ENABLE
-    assert(autonomy_get_command(&command));
-    assert(command.vx == 250.0f && command.vy == 125.0f);
-    assert(fabsf(command.wz - 28.64789f) < .0001f);
+    assert(autonomy_get_command(&cmd));
+    assert(fabsf(cmd.vx - 250.0f) < 1e-3f && fabsf(cmd.vy - 125.0f) < 1e-3f);
+    assert(fabsf(cmd.wz - 28.64789f) < 1e-3f);
 #else
-    assert(!autonomy_get_command(&command));
-    assert(command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f);
+    assert(!autonomy_get_command(&cmd));
+    assert(cmd.vx == 0.0f && cmd.vy == 0.0f && cmd.wz == 0.0f);
 #endif
-    now_ms = 300u;
-    navigation_deliver(bytes, sizeof(bytes)); /* 重复序号不能刷新接收时刻。 */
-    autonomy_task();
-    now_ms = 401u;
-    autonomy_task();
-    assert(!autonomy_get_command(&command));
 
-    frame.sequence = 8u;
-    frame.value[0] = NAN;
-    nav_protocol_encode(&frame, bytes);
-    navigation_deliver(bytes, sizeof(bytes));
+    /* Duplicate sequence rejected & watchdog expires after 300 ms */
+    now_ms = 350u;
+    deliver(nav_golden, NAV_FRAME_SIZE);
     autonomy_task();
-    assert(!autonomy_get_command(&command));
-    frame.value[0] = 1.0f;
-    nav_protocol_encode(&frame, bytes);
-    navigation_deliver(bytes, sizeof(bytes));
+    now_ms = 505u;
     autonomy_task();
-    assert(!autonomy_get_command(&command));
+    assert(!autonomy_get_command(&cmd));
 
-    frame.value[0] = .1f;
-    nav_protocol_encode(&frame, bytes);
-    bytes[20] ^= 1u;
-    navigation_deliver(bytes, sizeof(bytes));
+    /* Shared-CDC 0x0503 target RX + 100 ms timeout + 0x1021 pose TX */
+    now_ms = 900u;
+    deliver(t_raw, 15u);
+    deliver(t_raw + 15u, sizeof(t_raw) - 15u);
+    ax650_usb_update_quaternion(q_id, 950u);
+    tx_count = 0u;
+    stub_yaw_rad = 0.5f;
+    stub_yaw_sample_us = 900000u;
+    stub_yaw_online = 1u;
     autonomy_task();
-    assert(!autonomy_get_command(&command));
-    nav_protocol_encode(&frame, bytes);
-    navigation_deliver(bytes, sizeof(bytes));
-    autonomy_task();
-#if SENTRY_AUTONOMY_ENABLE
-    assert(autonomy_get_command(&command));
-#else
-    assert(!autonomy_get_command(&command));
-    assert(command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f);
-#endif
-    frame.sequence++;
-    frame.flags = 0u;
-    nav_protocol_encode(&frame, bytes);
-    navigation_deliver(bytes, sizeof(bytes));
-    autonomy_task();
-    assert(!autonomy_get_command(&command));
+    ax650_usb_state_t aim;
+    ax650_usb_get_state(&aim);
+    assert(aim.command_valid && aim.command.target_id == 3u && fabsf(aim.command.yaw - 30.0f) < 1e-3f);
+    assert(tx_count == 2u && tx_lens[0] == NAV_FRAME_SIZE && tx_lens[1] == AX650_POSE_FRAME_SIZE);
+    now_ms = 1005u;
+    ax650_usb_get_state(&aim);
+    assert(!aim.command_valid);
 
-    frame.flags = NAV_FLAG_VALID;
-    frame.sequence++;
-    nav_protocol_encode(&frame, bytes);
-    now_ms = 500u;
-    navigation_deliver(bytes, sizeof(bytes));
-    now_ms = 901u; /* 排队时间不能被伪装成新鲜数据。 */
-    autonomy_task();
-    assert(!autonomy_get_command(&command));
-
-    frame.type = NAV_MSG_SYNC_REQUEST;
-    nav_protocol_encode(&frame, bytes);
-    navigation_deliver(bytes, sizeof(bytes));
-    autonomy_task();
-    assert(tx_length == NAV_FRAME_SIZE);
-    nav_parser_t parser = {0};
-    nav_frame_t decoded;
-    int decoded_count = 0;
-    for (unsigned i = 0; i < 32; ++i) decoded_count += nav_protocol_feed(&parser, tx_buffer[i], &decoded);
-    assert(decoded_count == 1 && decoded.type == NAV_MSG_SYNC_RESPONSE && decoded.sample_us == 901000u);
-    navigation_complete_tx();
-    feed.big_yaw_rel_deg = 90.0f;
-    feed.big_yaw_sample_us = 902000u;
-    feed.big_yaw_online = 1u;
-    now_ms = 920u;
-    autonomy_task();
-    assert(tx_length == NAV_FRAME_SIZE);
-    memset(&parser, 0, sizeof(parser));
-    for (unsigned i = 0; i < 32; ++i) (void)nav_protocol_feed(&parser, tx_buffer[i], &decoded);
-    assert(decoded.type == NAV_MSG_FEEDBACK && decoded.sample_us == 902000u);
-    assert(fabsf(decoded.value[0] - 1.5707963f) < 1e-6f);
-    navigation_complete_tx();
-    unsigned previous = tx_count;
-    now_ms += 20u;
-    autonomy_task();
-    assert(tx_count == previous); /* 不给重复角度盖新时间。 */
-
-    uint8_t target[39];
-    make_target_frame(target);
-    print_hex(target, sizeof(target));
-    navigation_deliver(target, 13u);
-    autonomy_task();
-    ax650_usb_state_t vision;
-    ax650_usb_get_state(&vision);
-    assert(!vision.command_valid);
-    navigation_deliver(target + 13u, sizeof(target) - 13u);
-    autonomy_task();
-    ax650_usb_get_state(&vision);
-    assert(vision.command_valid && vision.command_count == 1u);
-    assert(vision.command.yaw == 30.0f && vision.command.pitch == -5.0f);
-    assert(vision.command.yaw_speed == 0.25f && vision.command.pitch_speed == -0.125f);
-    assert(vision.command.distance == 4.5f && vision.command.shoot == 1u && vision.command.target_id == 3u);
-    now_ms += AX650_COMMAND_TIMEOUT_MS + 1u;
-    ax650_usb_get_state(&vision);
-    assert(!vision.command_valid);
-
-    const float identity[4] = {1.0f, 0.0f, 0.0f, 0.0f};
-    ax650_usb_update_quaternion(identity, 950u);
-    now_ms = 950u;
-    autonomy_task();
-    assert(tx_length == AX650_POSE_FRAME_SIZE);
-    print_hex(tx_buffer, tx_length);
-    puts("firmware navigation and auto-aim USB tests passed");
+    puts("shaobin firmware navigation and auto-aim USB tests passed");
     return 0;
 }

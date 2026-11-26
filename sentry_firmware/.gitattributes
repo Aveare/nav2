@@ -1,0 +1,16 @@
+# 行尾统一：源码与文档在仓库内一律存 LF，避免换设备后 CRLF 转换产生假 diff
+# 与 RM_DEVLOG 的 EOL 归一审计口径一致（audit_baseline.py --ignore-eol）
+* text=auto eol=lf
+
+# 二进制/生成物：不做行尾转换
+*.a       binary
+*.bin     binary
+*.hex     binary
+*.elf     binary
+*.o       binary
+*.png     binary
+*.jpg     binary
+*.gif     binary
+*.webp    binary
+*.pdf     binary
+*.zip     binary

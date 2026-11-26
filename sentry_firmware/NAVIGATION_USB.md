@@ -1,8 +1,8 @@
-# 本地哨兵 USB 导航协议 NV v1（2026-11-25）
+# 本地哨兵 USB 导航协议 NV v1（2026-11-26，已移植至 `hibhvkgvck/shaobin` 底座）
 
-这是为本次本地接入新增、同时实现于两端的协议，不是声称 GitHub 原电控已经存在的协议。
-固件接收端在 `components/navigation` 与 `apps/sentry/autonomy`；ROS 发送端在
-`../src/cod_nuc_bringup/scripts/sentry_usb_bridge.py`。该进程同时承载自瞄 RMCV 帧，
+这是为本次本地接入新增、同时实现于两端的协议，不是声称上游电控原本已经存在的协议。
+固件接收端在 `modules/navigation` 与 `application/autonomy`（基线为 `hibhvkgvck/shaobin@b489e76`）；ROS 发送端在
+`../cod_ws/src/cod_nuc_bringup/scripts/sentry_usb_bridge.py`（在 `Aveare/nav2` 同步副本中位于 `../src/cod_nuc_bringup/scripts/sentry_usb_bridge.py`）。该进程同时承载自瞄 RMCV 帧，
 是 USB CDC 的唯一上位机所有者。旧 `cod_serial_ul26` 的 15 字节包不能混用，
 不要让两个进程打开同一个 USB 口。
 
@@ -47,11 +47,10 @@ CAN/USB ISR 采样使用 FromISR tick API；大 yaw 角度与其采样时间在�
 大 yaw 原始采样时间重复时不重发角度。平台零位、传动比及正方向继承源电控配置，
 本次没有重新标定；机械拆装或 MCU 重启后须核对原工程多圈/零位语义。
 
-STM32 在 `SENTRY_AUTONOMY_ENABLE=0` 时仍以 20 ms 周期发送新鲜的大 yaw 角度，
+STM32 在 `SENTRY_AUTONOMY_ENABLE=0` 时仍以 20 ms 周期发送新鲜的大 yaw 相对角（相对 `SENTRY_BIG_YAW_FRONT_ALIGN_RAD = -1.52914 rad`），
 但读取导航命令的出口会把整帧速度清零并返回无效，因此不会把 USB 速度交给底盘 PID。
 角度 CAN 采样时间不更新时停止回传，禁止把旧角度包装成新数据。
-当前固件设置 `SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=0`，恢复原大 yaw 角度环、
-速度环和 MIT 力矩输出；`SENTRY_AUTONOMY_ENABLE=0` 仍独立禁止 USB 导航速度接管底盘。
+当前 `hibhvkgvck/shaobin` 基线保留完整大 yaw 编码器机械回正与小陀螺纯世界角速度 PI 补偿（`Kp=5.2, Ki=1.2`）；`SENTRY_AUTONOMY_ENABLE=0` 仍独立禁止 USB 导航速度接管底盘。
 
 ROS 桥接每 20 ms 发送速度，仅当 cmd_vel、底盘 Odometry、角度反馈在 0.2 s 内更新，
 Odometry 采样时间也新鲜、测时有效且 enable_drive=true 时标有效。失效则发零速度无效帧。

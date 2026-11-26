@@ -7,18 +7,19 @@
 - `src/cod_navigation`：COD 导航、Small Point-LIO、控制器和工具包。
 - `src/cod_behavior_stack`：行为树、裁判系统消息和决策通信。
 - `src/cod_nuc_bringup`：仿真与实车启动入口、坐标补偿、USB 桥及测试。
-- `sentry_firmware`：从 RM-JIT-CR 整理的哨兵电控与公共依赖，保留来源清单和本地变更记录。
+- `sentry_firmware`：以 `hibhvkgvck/shaobin@b489e76` 为电控底座，移植本地 `NV v1` USB 导航协议与共享 USB CDC 自瞄 `0x1021/0x0503`，保留原工程记录与本地变更日志。
 
-上游导航来源为 COD 的 Gitee 仓库；电控来源为 `youyucat/RM-JIT-CR`。本仓库为用户自己的同步副本，不向这些上游仓库推送。原有许可证及来源记录保留在对应目录，未给整个项目另行指定许可证。
+上游导航来源为 COD 的 Gitee 仓库；电控来源为 `hibhvkgvck/shaobin`（原基于 `youyucat/RM-JIT-CR` / 跃鹿 `basic_framework`）。本仓库为用户自己的公开同步副本，不向这些上游仓库推送。原有许可证及来源记录保留在对应目录，未给整个项目另行指定许可证。
 
 ## 当前验证状态（2026-11-26）
 
-- 小电脑上 `cod_bringup`、`small_point_lio`、`cod_nuc_bringup` 编译成功。
+- 小电脑上 `rm_interfaces`、`cod_bringup`、`small_point_lio`、`cod_nuc_bringup` 编译成功。
 - `cod_nuc_bringup` 的 24 项 ROS 2 测试通过；包含坐标、硬件 launch、时间戳、RMCV 和 USB 伪终端收发。
-- 电控通信主机测试在 GCC `-O0` 和 `-Ofast -flto` 下通过，`NV`、`0x0503`、`0x1021` 的 C/Python 协议字节一致。
-- STM32F407 ARM Debug 全量编译与链接通过（已优先合入上游 `youyucat/RM-JIT-CR@6e63abe` 哨兵实机修复 `DEV-20261126-01..11`，含 `SENTRY_BIG_YAW_OUTPUT_ENABLE=0`、`SENTRY_BIG_YAW_ZERO_RAD=1.436828f`、`SENTRY_SMALL_YAW_ENABLE=0`、取消解锁回中与 USART1 VOFA，并保留 `NV v1` 导航、`SENTRY_AUTONOMY_ENABLE=0` 硬清零与共享 CDC 自瞄）：FLASH 11.55%、RAM 56.35%、CCMRAM 83.84%。
+- 小电脑实机雷达静态大 yaw 零位建图（`room_scan_20261126_012426`，191×166，`0.05 m/px`，10 Hz 雷达/里程计/scan，200 Hz IMU，0 丢包）与 AMCL（`OmniMotionModel`）实机重定位收敛验证通过（scan-to-map 中位墙距误差 `13.2 cm → 3.7 cm`，`≤10 cm` 命中率 `42.4% → 76.7%`）；期间 `start_serial=false`、`enable_drive=false`。
+- 电控通信主机测试在本地 WSL GCC `-O0` 与 `-Ofast -flto`（`feedback-only` 与 `drive-enabled` 共 4 组）全部通过，`NV`、`0x0503`、`0x1021` 的 C/Python 协议字节一致；13 个改动/新增 C 文件语法检查通过；原 `hibhvkgvck/shaobin` 4 套主机回归（底盘仲裁、命令看门狗、哨兵串级控制、大 yaw 纯速度小陀螺）全部通过。
+- STM32F407 本地 Windows ARM GCC 14.2.1 清洁全量编译与链接通过（`hibhvkgvck/shaobin@b489e76` 底座 + `NV v1` 导航 + 共享 CDC 自瞄，保留 600×560 mm 底盘、`-1.52914 rad` 大 yaw 机械零位、小陀螺纯速度 PI `Kp=5.2/Ki=1.2`、小 yaw `±90°` 限位及 `SENTRY_AUTONOMY_ENABLE=0` 默认硬清零）：FLASH 11.09%（116,324 B）、RAM 74.27%（97,352 B）、CCMRAM 0.00%，第一方 0 error / 0 warning，ELF SHA256=`A2B36454BC67EF9E59262B8C8877C09233BF08D774F268AE4E5FC7B635B17C8F`（严禁小电脑编译，烧录在本地完成）。
 - 独立域 43 的三点 loopback 导航通过，终点误差约 0.147 m，速度输出未超过首测限值。
-- 实车参数已同步并安装到小电脑；这不表示已经完成实车运行验证。
+- 实车 ROS 参数已同步并安装到小电脑；新底座固件已本地编译但尚未烧录，尚未完成整车 USB 联调与闭环行车验证。
 
 ## 实车入口与参数
 

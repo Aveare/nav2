@@ -1,0 +1,63 @@
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+build
+./idea
+.vscode/.cortex-debug.peripherals.state.json
+.vscode/.cortex-debug.registers.state.json
+*.jdebug*
+# JIT CR:临时采集脚本与损坏仓库备份(2026-10-28 git 重建时补充)
+.workbuddy/tmp/
+.git.broken-*/
+
+# EmberProbe 本机桥接指针(含机器本地路径,不入库)
+.agents/skills/_emberprobe/agent-bridge.json
+
+# IDE 本机计划/会话产物,不入库
+.zcode/
