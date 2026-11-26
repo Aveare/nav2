@@ -108,9 +108,14 @@ int main(void)
     assert(!autonomy_get_command(&command));
     navigation_deliver(bytes + 9, sizeof(bytes) - 9);
     autonomy_task();
+#if SENTRY_AUTONOMY_ENABLE
     assert(autonomy_get_command(&command));
     assert(command.vx == 250.0f && command.vy == 125.0f);
     assert(fabsf(command.wz - 28.64789f) < .0001f);
+#else
+    assert(!autonomy_get_command(&command));
+    assert(command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f);
+#endif
     now_ms = 300u;
     navigation_deliver(bytes, sizeof(bytes)); /* 重复序号不能刷新接收时刻。 */
     autonomy_task();
@@ -139,7 +144,12 @@ int main(void)
     nav_protocol_encode(&frame, bytes);
     navigation_deliver(bytes, sizeof(bytes));
     autonomy_task();
+#if SENTRY_AUTONOMY_ENABLE
     assert(autonomy_get_command(&command));
+#else
+    assert(!autonomy_get_command(&command));
+    assert(command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f);
+#endif
     frame.sequence++;
     frame.flags = 0u;
     nav_protocol_encode(&frame, bytes);

@@ -13,6 +13,10 @@
 本地开发入口 README.md / NAVIGATION_USB.md；下列上游历史仅作原始来源，不能作为
 本副本的实机验证结论。详见 DEV-20261125-LOCAL-NAV。
 
+2026-11-26 增加哨兵 USB 只读联调硬隔离：大 yaw 新鲜 CAN 角度按 50 Hz 回传，
+`SENTRY_AUTONOMY_ENABLE=0` 时导航速度在命令出口整帧清零，不进入底盘 PID。
+详见 DEV-20261126-LOCAL-YAW-FEEDBACK。
+
 ## 0. AI 冷启动摘要
 
 <!-- AI 会话开始时只读本节即可接手;只放结论与链接,证据留在对应条目。人工接手同样建议先读这里。 -->
@@ -3834,3 +3838,14 @@ heat_limit=320)。若直接信裁判值,允许功率会比规则宽 30W。
 - 相关文档：`AUTOAIM_USB_PROTOCOL.md` 更新为已实现状态并给出 ROS 话题、启动命令、默认门控和联调顺序；`NAVIGATION_USB.md` 明确共享网关；根 `README.md` 更新验证状态。
 - 未验证：真实 USB 枚举、100 Hz 周期抖动和丢包、云台零位/正方向、遥控与 USB 失联、弹速/机器人 ID、发射保护及比赛环境。主机测试和 ARM 编译不等于实车验收。
 - AI：Codex（GPT-6），2026-11-26。
+
+## DEV-20261126-LOCAL-YAW-FEEDBACK — 大 yaw 只读回传与 PID 硬隔离
+
+- 目标：STM32 通过 USB CDC 持续输出大 yaw 相对底盘角度，但不把上位机导航速度交给底盘 PID。
+- 反馈：仅对新鲜 DM CAN 快照按 20 ms 周期发送 NV v1 `FEEDBACK`，角度由 deg 转 rad，保留原采样时间和在线有效位；CAN 采样不更新时不伪造新时间。
+- 硬隔离：保持 `SENTRY_AUTONOMY_ENABLE=0`。该编译模式下 `autonomy_get_command()` 直接清零整条 `sentry_auto_cmd_t` 并返回 0，即使 USB 命令已经通过 CRC、序号和限幅检查也不会进入底盘 PID。
+- 测试：导航主机测试增加 feedback-only 与 drive-enabled 两种编译模式，分别覆盖 `-O0`、`-Ofast -flto`，四组全部通过；只读模式断言速度恒为零，且角度反馈协议仍可正常编码。13 个相关生产 C 文件通过主机语法检查。
+- ARM 编译：GNU Arm Embedded 14.3.1 全量编译链接通过；FLASH 119916 B/1 MiB（11.44%），RAM 73840 B/128 KiB（56.34%），CCMRAM 54944 B/64 KiB（83.84%）。生成未跟踪的 `firmware/current.elf`，SHA256 为 `EB07C4B505067EB6C0957ADDCEFE57628D8702057DC656ED706978B103F62E8F`；仅有工程既有 gimbal 未使用变量、newlib syscall 桩和 CMake COMMENT 警告。
+- 文档：同步更新 `README.md` 与 `NAVIGATION_USB.md`，明确只读固件和后续放行条件。
+- 边界：本次只改源码、测试和文档并完成 ARM 编译；不烧录、不启动实车底盘或发射机构。构建目录和固定 ELF 副本已加入忽略规则，不进入 Git。
+- AI：OpenAI Codex，2026-11-26。

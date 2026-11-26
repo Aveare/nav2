@@ -27,7 +27,9 @@
 
 ## 默认只联调通信
 
-`SENTRY_AUTONOMY_ENABLE=0`：USB 可收发，导航不能接管底盘。
+`SENTRY_AUTONOMY_ENABLE=0`：USB 以 50 Hz 持续回传新鲜的大 yaw CAN 角度，
+但 `autonomy_get_command()` 会把已解析的导航速度整帧清零并返回无效，导航命令
+不能进入底盘 PID。若大 yaw CAN 反馈停止，固件不会用旧角度伪造新采样时间。
 ROS 桥接 `enable_drive=false`：继续回传角度与测时，速度命令标记为无效。
 通信联调不需要解除这两个开关。原电控的手动功能不是被这两个开关禁用的。
 

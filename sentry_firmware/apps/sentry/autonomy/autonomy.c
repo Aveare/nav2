@@ -125,7 +125,8 @@ void autonomy_task(void)
 
     msg_recv(gimbal_feed_sub, &gimbal_feed);
     uint32_t now = kernel_tick_ms();
-    if (now - feedback_last_ms >= 20u && gimbal_feed.big_yaw_sample_us != feedback_last_sample)
+    if (now - feedback_last_ms >= SENTRY_NAVIGATION_FEEDBACK_PERIOD_MS &&
+        gimbal_feed.big_yaw_sample_us != feedback_last_sample)
     {
         nav_frame_t feedback = {.type = NAV_MSG_FEEDBACK, .sequence = feedback_sequence,
                                .sample_us = gimbal_feed.big_yaw_sample_us,
@@ -150,8 +151,14 @@ void autonomy_task(void)
 
 int autonomy_get_command(sentry_auto_cmd_t *command)
 {
+#if SENTRY_AUTONOMY_ENABLE
     *command = auto_cmd;
-    command->valid = SENTRY_AUTONOMY_ENABLE && auto_cmd.valid && has_command &&
+    command->valid = auto_cmd.valid && has_command &&
                      kernel_tick_ms() - auto_last_ms <= SENTRY_AUTONOMY_COMMAND_TIMEOUT_MS;
     return command->valid;
+#else
+    /* 安全:只读联调固件不得把已解析的 USB 速度泄漏到底盘 PID。 */
+    memset(command, 0, sizeof(*command));
+    return 0;
+#endif
 }

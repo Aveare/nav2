@@ -8,7 +8,8 @@
  */
 #pragma once
 
-#define SENTRY_AUTONOMY_ENABLE 0          /* [配置] USB可收发;改1才允许导航接管底盘,待台架验证 */
+#define SENTRY_AUTONOMY_ENABLE 0          /* [配置] 0=只回传角度且导航命令硬清零;1=允许导航接管,待台架验证 */
+#define SENTRY_NAVIGATION_FEEDBACK_PERIOD_MS 20u /* [配置] 大 yaw 新鲜 CAN 角度回传周期,ms(50 Hz) */
 #define SENTRY_NAVIGATION_ACCEL_MM_S2 350.0f /* [待实测] 导航专用平移斜坡,不改手动参数 */
 #define SENTRY_NAVIGATION_MAX_SPEED_M_S 0.35f /* [待实测] 每轴导航限速,与ROS低速配置一致 */
 #define SENTRY_NAVIGATION_MAX_WZ_RAD_S 0.5f /* [待实测] 导航角速度限幅,不使用巡逻占位值 */

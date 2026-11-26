@@ -1,4 +1,5 @@
 **/build/
+**/build_*/
 **/install/
 **/log/
 **/logs/
@@ -18,6 +19,7 @@
 .env.*
 *.pem
 *.key
+sentry_firmware/firmware/
 
 !sentry_firmware/Middlewares/ST/ARM/DSP/Lib/libarm_cortexM4lf_math.a
 !sentry_firmware/Middlewares/ST/ARM/DSP/Lib/libCMSISDSP.a
