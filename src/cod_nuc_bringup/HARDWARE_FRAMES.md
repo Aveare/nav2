@@ -76,6 +76,17 @@ localization 启动 map_server、AMCL 和生命周期管理器，采用 OmniMoti
 尚未标定安装 TF 的深度相机。车体过滤与快速平台旋转下的逐点去畸变仍需实测，
 不能把一次整帧 TF 投影视为逐点补偿。
 
+### RViz 原始点云显示
+
+`cod_bringup/rviz/rviz2.rviz` 的 Fixed Frame 使用 `base_link`，PointCloud2
+话题使用 `/livox/lidar`。MID-360S 驱动实际发布的消息坐标系是
+`livox_frame`，RViz 通过 `base_link -> big_yaw_link -> livox_frame` 的 TF
+把原始点云转换到底盘坐标系。不要使用旧配置中的 `imu_link` 和
+`/livox/lidar_PointCloud2`，前者不属于当前接入链，后者在当前驱动中没有发布者。
+
+无串口测试模式下，`base_link -> big_yaw_link` 是零角静态 TF，因此大 yaw
+必须机械锁定在零位；大 yaw 转动后仍使用静态 TF，会让点云方向与实物不一致。
+
 最终 cmd_vel 的 linear.x/linear.y/angular.z 分别为底盘前进/左移/逆时针角速度。
 新入口不启动 fake_vel_transform。2026-11-25 起使用 sentry_usb_bridge.py 的 NV v1
 32 字节协议，替换旧 15 字节串口发送链。start_serial 默认 true，但 enable_drive

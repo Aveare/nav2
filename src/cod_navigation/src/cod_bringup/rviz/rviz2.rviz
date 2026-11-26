@@ -181,14 +181,14 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /livox/lidar_PointCloud2
+        Value: /livox/lidar
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: imu_link
+    Fixed Frame: base_link
     Frame Rate: 30
   Name: root
   Tools:
