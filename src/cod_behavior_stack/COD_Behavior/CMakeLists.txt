@@ -21,6 +21,8 @@ find_package(rm_interfaces REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(behaviortree_ros2 REQUIRED)
+# include.h 里的 resolveAssetPath 用它把相对路径落到 <包>/share 下
+find_package(ament_index_cpp REQUIRED)
 
 add_executable(tree_1 src/cod_behavior.cpp)
 add_executable(test_1 test/test_GoZone.cpp)
@@ -39,23 +41,28 @@ ament_target_dependencies(tree_1
         tf2_geometry_msgs
         tf2_ros
         behaviortree_ros2
+        ament_index_cpp
 )
 
 ament_target_dependencies(test_1
         rclcpp
         rm_interfaces
+        ament_index_cpp
 )
 ament_target_dependencies(test_2
         rclcpp
         rm_interfaces
+        ament_index_cpp
 )
 ament_target_dependencies(test_3
         rclcpp
         rm_interfaces
+        ament_index_cpp
 )
 ament_target_dependencies(test_4
         rclcpp
         rm_interfaces
+        ament_index_cpp
 )
 
 include_directories(

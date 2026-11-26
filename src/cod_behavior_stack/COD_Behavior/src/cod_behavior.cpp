@@ -100,7 +100,22 @@ int main(int argc, char **argv) {
         }
     );
 
-    const std::string cod_bt = global_node_->get_parameter("cod_bt_path").as_string();
+    const std::string cod_bt_raw =
+        global_node_->get_parameter("cod_bt_path").as_string();
+
+    // 允许写 "COD_Behavior/cod_bt/xxx.xml" 这类相对路径：会依次尝试
+    // 当前工作目录、<share>/cod_behavior/、<share>/cod_behavior/cod_bt/。
+    const std::string cod_bt =
+        resolveAssetPath("cod_behavior", cod_bt_raw, "行为树文件");
+    if (cod_bt.empty()) {
+        RCLCPP_FATAL(global_node_->get_logger(),
+                     "无法定位行为树文件 cod_bt_path=%s；"
+                     "请改为绝对路径，或确认 cod_bt/ 已安装到 share/cod_behavior/",
+                     cod_bt_raw.c_str());
+        rclcpp::shutdown();
+        return 1;
+    }
+    RCLCPP_INFO(global_node_->get_logger(), "行为树文件: %s", cod_bt.c_str());
 
     try {
         auto tree = factory.createTreeFromFile(cod_bt);

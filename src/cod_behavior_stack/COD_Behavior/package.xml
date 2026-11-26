@@ -26,4 +26,5 @@
   </export>
   <depend>behaviortree_cpp</depend>
   <depend>behaviortree_ros2</depend>
+  <depend>ament_index_cpp</depend>
 </package>

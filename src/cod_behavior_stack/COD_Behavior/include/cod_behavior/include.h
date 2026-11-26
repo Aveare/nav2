@@ -20,8 +20,69 @@
 #include "nav2_msgs/action/follow_waypoints.hpp"
 #include <fstream>
 #include <sstream>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <../../BehaviorTree.ROS2/behaviortree_ros2/include/behaviortree_ros2/bt_action_node.hpp>
+
+// ======================== 资源路径解析（可移植） ========================
+// 原始代码在行为树 XML / 参数里写死了作者机器上的绝对路径
+// （如 /home/cod-sentry/dyx_ws/cod-sentry/src/cod_bringup/wps/patrol3.csv），
+// 换机器、换工作空间、只装 install/ 而不带 src/ 时必然找不到文件。
+// 这里统一做一次"尽力而为"的解析，依次尝试：
+//   1) 原样（绝对路径，或相对当前工作目录）
+//   2) <包 share 目录>/<原路径>
+//   3) <包 share 目录>/<文件名>
+//   4) <包 share 目录>/<原路径的父目录名>/<文件名>   ← 如 wps/xxx.csv、cod_bt/xxx.xml
+// 全部失败时打印所有候选路径并返回空串，调用方据此返回 FAILURE，
+// 而不是抛异常把整棵行为树带崩。
+inline std::string resolveAssetPath(const std::string &package,
+                                    const std::string &requested,
+                                    const std::string &what = "资源") {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+
+        std::vector<fs::path> candidates;
+        const fs::path given(requested);
+        candidates.push_back(given);
+
+        std::string share;
+        try {
+                share = ament_index_cpp::get_package_share_directory(package);
+        } catch (const std::exception &) {
+                // 包没装（比如只编了一半），下面会打印候选并报错
+                share.clear();
+        }
+
+        if (!share.empty()) {
+                candidates.push_back(fs::path(share) / given);
+                candidates.push_back(fs::path(share) / given.filename());
+                if (!given.parent_path().empty()) {
+                        candidates.push_back(fs::path(share) /
+                                             given.parent_path().filename() /
+                                             given.filename());
+                }
+        }
+
+        for (const auto &cand : candidates) {
+                if (fs::exists(cand, ec)) {
+                        return fs::absolute(cand, ec).string();
+                }
+        }
+
+        std::string tried;
+        for (const auto &cand : candidates) {
+                tried += "\n    - " + cand.string();
+        }
+        RCLCPP_ERROR(rclcpp::get_logger("resolveAssetPath"),
+                     "%s 未找到: %s (包: %s)，已尝试:%s",
+                     what.c_str(), requested.c_str(), package.c_str(), tried.c_str());
+        return {};
+}
+
 //读取自定义的航点函数
 geometry_msgs::msg::PoseStamped
 loadPoseStamped(

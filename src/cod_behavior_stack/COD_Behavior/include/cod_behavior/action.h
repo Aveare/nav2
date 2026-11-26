@@ -207,7 +207,12 @@ public:
             RCLCPP_ERROR(logger(), "读取端口 [waypoint_file] 时出错: %s", file_res.error().c_str());
             return false;
         }
-        const std::string &waypoint_file = file_res.value();
+        // 支持绝对路径、相对工作目录、以及 <cod_bringup share>/wps/xxx.csv 三种写法
+        const std::string waypoint_file =
+            resolveAssetPath("cod_bringup", file_res.value(), "航点文件");
+        if (waypoint_file.empty()) {
+            return false;
+        }
 
         auto frame_res = getInput<std::string>("frame_id");
         const std::string &frame_id = (frame_res && !frame_res.value().empty()) ? frame_res.value() : "map";
@@ -308,7 +313,12 @@ public:
             RCLCPP_ERROR(logger(), "读取端口 [waypoint_file] 时出错: %s", file_res.error().c_str());
             return false;
         }
-        const std::string &waypoint_file = file_res.value();
+        // 支持绝对路径、相对工作目录、以及 <cod_bringup share>/wps/xxx.csv 三种写法
+        const std::string waypoint_file =
+            resolveAssetPath("cod_bringup", file_res.value(), "航点文件");
+        if (waypoint_file.empty()) {
+            return false;
+        }
 
         auto frame_res = getInput<std::string>("frame_id");
         const std::string &frame_id = (frame_res && !frame_res.value().empty()) ? frame_res.value() : "map";
@@ -481,11 +491,18 @@ public:
         auto frame_res = getInput<std::string>("frame_id");
         const std::string frame_id = (frame_res && !frame_res.value().empty()) ? frame_res.value() : "map";
 
+        // 支持绝对路径、相对工作目录、以及 <cod_bringup share>/wps/xxx.csv 三种写法
+        const std::string waypoint_file =
+            resolveAssetPath("cod_bringup", file_res.value(), "航点文件");
+        if (waypoint_file.empty()) {
+            return BT::NodeStatus::FAILURE;
+        }
+
         std::vector<geometry_msgs::msg::PoseStamped> waypoints;
         std::vector<double> wait_times;
-        if (!loadWaypointsFromCSV(file_res.value(), waypoints, frame_id, &wait_times)) {
+        if (!loadWaypointsFromCSV(waypoint_file, waypoints, frame_id, &wait_times)) {
             RCLCPP_ERROR(rclcpp::get_logger("LoadWaypoints"),
-                         "无法从文件加载航点: %s", file_res.value().c_str());
+                         "无法从文件加载航点: %s", waypoint_file.c_str());
             return BT::NodeStatus::FAILURE;
         }
 
