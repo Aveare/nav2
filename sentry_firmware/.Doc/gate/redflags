@@ -1,0 +1,26 @@
+# G4 红旗白名单
+#
+# 行格式: <path>|<token>|<verdict>|<reason>
+# verdict ∈ {豁免, 待裁决};只有“豁免”会压制新增站点,“待裁决”会使 G4 FAIL。
+#
+# U3 后 components/framework 的 RTOS 依赖为 0;以下句柄仅保留为 Init 注入,
+# 不在任务/控制函数内访问。while(1) 仅保留启动期 fail-fast、任务主循环或端口非法路径。
+apps/common/app/app_shell.c|htim4|豁免|buzzer_init 的 PWM 句柄注入
+apps/infantry/app/assembly.c|huart1|豁免|AX650 Init 句柄注入
+apps/infantry/chassis/chassis.c|hcan1|豁免|底盘电机 Init 句柄注入
+apps/infantry/chassis/chassis.c|hcan2|豁免|底盘/双板相关 Init 句柄注入
+apps/infantry/chassis/chassis.c|huart1|豁免|UART1 调试/自瞄 Init 句柄注入
+apps/infantry/chassis/chassis.c|huart6|豁免|裁判 Init 句柄注入
+apps/infantry/cmd/robot_cmd.c|hcan1|豁免|遥控/命令相关 Init 句柄注入
+apps/infantry/cmd/robot_cmd.c|huart3|豁免|DBUS Init 句柄注入
+apps/infantry/gimbal/gimbal.c|hcan1|豁免|云台 yaw Init 句柄注入
+apps/infantry/gimbal/gimbal.c|hcan2|豁免|云台 pitch Init 句柄注入
+apps/infantry/gimbal/gimbal.c|huart6|豁免|自瞄/裁判调试 Init 句柄注入
+apps/infantry/shoot/shoot.c|hcan2|豁免|发射电机 Init 句柄注入
+components/imu/ins_task.c|while(1)|豁免|INS 启动期 fail-fast
+components/motor/dji/dji_motor.c|while(1)|豁免|DJI 启动期配置 fail-fast
+components/motor/ht/ht_motor.c|while(1)|豁免|HT 电机任务主循环
+ports/stm32f4/can_port.c|while(1)|豁免|CAN 启动期配置 fail-fast
+ports/stm32f4/fault_port.c|while(1)|豁免|复位指令之后不可达防御环
+ports/stm32f4/pwm_port.c|while(1)|豁免|PWM 非法配置路径
+ports/stm32f4/usart_port.c|while(1)|豁免|USART 非法实例/模式路径

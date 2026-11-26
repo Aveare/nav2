@@ -1,0 +1,71 @@
+{
+  "_comment": "调试变量预设(症状→变量集)。变量路径是 DWARF 契约:新增/修改预设后,须把新路径登记进 .Doc/gate/tool-symbols.json 并跑 tools/check_symbol_contract.py;新增预设请同步 .Doc/guide/调参诊断手册.md。",
+  "yaw_oscillation": {
+    "desc": "yaw 往复/抖动:目标-反馈-输出-积分同屏,判振荡还是目标台阶",
+    "vars": [
+      "gimbal_imu_data->YawTotalAngle",
+      "gimbal_cmd_recv.yaw",
+      "yaw_motor->motor_controller.speed_PID.Output",
+      "yaw_motor->motor_controller.speed_PID.Iout",
+      "yaw_motor->measure.speed_aps",
+      "gimbal_imu_data->Gyro[2]"
+    ],
+    "interval_ms": 20,
+    "seconds": 20
+  },
+  "pitch_stutter": {
+    "desc": "pitch 推杆顿挫:反馈/目标/前馈/输出,区分 stick-slip 与输入台阶",
+    "vars": [
+      "ins_state.Pitch",
+      "ins_state.Gyro[0]",
+      "gimbal_cmd_recv.pitch",
+      "pitch_motor->motor_controller.speed_PID.Output",
+      "pitch_motor->motor_controller.speed_PID.Iout",
+      "pitch_motor->measure.real_current"
+    ],
+    "interval_ms": 20,
+    "seconds": 20
+  },
+  "chassis_follow": {
+    "desc": "底盘跟随滞后/画龙:指令 wz vs 估计 wz vs 云台角速度",
+    "vars": [
+      "chassis_cmd_recv.wz",
+      "est_wz",
+      "chassis_cmd_recv.offset_angle",
+      "gimbal_imu_data->Gyro[2]",
+      "chassis_cmd_recv.yaw_rate_cmd"
+    ],
+    "interval_ms": 20,
+    "seconds": 20
+  },
+  "chassis_power": {
+    "desc": "平移/功率:指令-估计-四轮参考,判断限幅与打滑",
+    "vars": [
+      "chassis_cmd_recv.vx",
+      "chassis_cmd_recv.vy",
+      "chassis_cmd_recv.wz",
+      "est_vx",
+      "est_vy",
+      "est_wz",
+      "vt_lf",
+      "vt_rf",
+      "vt_lb",
+      "vt_rb"
+    ],
+    "interval_ms": 50,
+    "seconds": 30
+  },
+  "motor_health": {
+    "desc": "电机健康巡检:电流/温度/转速(离线表现为电流恒 0、温度不涨)",
+    "vars": [
+      "motor_lf->measure.real_current",
+      "motor_rf->measure.real_current",
+      "motor_lb->measure.real_current",
+      "motor_rb->measure.real_current",
+      "yaw_motor->measure.real_current",
+      "yaw_motor->measure.temperature"
+    ],
+    "interval_ms": 200,
+    "seconds": 60
+  }
+}

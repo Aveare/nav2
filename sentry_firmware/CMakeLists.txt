@@ -22,9 +22,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # 指定工程名称和语言类型
 project(basic_framework C ASM) 
 
-# 选择构建类型
+# 选择构建类型:默认 Debug,允许 CI/发布显式选择 Release/RelWithDebInfo。
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type: Debug|Release|RelWithDebInfo|MinSizeRel" FORCE)
 endif()
 
 # board specific settings, arch/fpu/instruction
@@ -68,21 +68,43 @@ function(include_sub_directories_recursively root_dir)
 endfunction()
 include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/Drivers)
 include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/Middlewares)
-include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/bsp)
-include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/modules)
-include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/application)
-include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/config)
+# 装配 profile:只包含选中的 apps/<robot>/app,避免三份 profile.h 同名头互相遮蔽。
+set(ROBOT_PROFILE "infantry" CACHE STRING "robot profile: infantry|heavy|sentry")
+set(APP_PROFILE_DIR ${CMAKE_SOURCE_DIR}/apps/${ROBOT_PROFILE})
+if(NOT IS_DIRECTORY ${APP_PROFILE_DIR})
+    message(FATAL_ERROR "ROBOT_PROFILE=${ROBOT_PROFILE}: 找不到 ${APP_PROFILE_DIR}")
+endif()
+include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/apps/common/app)
+include_sub_directories_recursively(${APP_PROFILE_DIR})
+# 配置伞头:按 profile 选目录(infantry_2026/heavy_2026/sentry_2026);
+# 未建对应目录时回落到 infantry_2026(heavy/sentry 当前仅编译期锚点,M5 实装)。
+set(CONFIG_PROFILE "${ROBOT_PROFILE}_2026" CACHE STRING "config profile directory")
+if(NOT IS_DIRECTORY ${CMAKE_SOURCE_DIR}/config/${CONFIG_PROFILE})
+    set(CONFIG_PROFILE "infantry_2026")
+endif()
+include_directories(${CMAKE_SOURCE_DIR}/config/${CONFIG_PROFILE})
 include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/Inc)
+# B1 自研框架目录(方案 §3.1;ports/posix 为主机专用,在 tests/fwk_posix,不进 ARM 构建)
+include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/framework)
+include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/ports)
+# B5 组件目录(components/;方案 §3.1)
+include_sub_directories_recursively(${CMAKE_SOURCE_DIR}/components)
 
 # add source, only surfix .c
 file(GLOB_RECURSE SOURCES
     "Drivers/*.c"
     "Src/*.c"
     "Middlewares/*.c"
-    "bsp/*.c"
-    "modules/*.c"
-    "application/*.c"
+    "framework/*.c"
+    "ports/*.c"
+    "components/*.c"
+    "apps/common/*.c"
+    "apps/${ROBOT_PROFILE}/*.c"
 )
+# 框架独立静态库源集(framework/ 全部 + ports/freertos 后端;保持"framework 0 RTOS
+# include、后端唯一落点 ports"边界;方案 §6-B1"独立静态库 target")
+file(GLOB_RECURSE FRAMEWORK_SOURCES "framework/*.c")
+file(GLOB_RECURSE PORTS_FREERTOS_SOURCES "ports/freertos/*.c")
 
 # 汇编文件路径
 # ENABLE_LANGUAGE(ASM)
@@ -110,12 +132,16 @@ endif ()
 
 # build binary and hex file
 add_executable(${PROJECT_NAME}.elf  ${SOURCES} ${ASM_SOURCES} ${LINKER_SCRIPT})
-target_link_libraries(${PROJECT_NAME}.elf ${DSP_NAME} m) # link DSP lib and math lib
+target_link_libraries(${PROJECT_NAME}.elf framework_core ${DSP_NAME} m) # B1:+framework_core
+
+# B1:框架独立静态库(新框架符号 nm 锚点 fw_abi_anchor 在内,防 GLOB 空验)
+add_library(framework_core STATIC ${FRAMEWORK_SOURCES} ${PORTS_FREERTOS_SOURCES})
 
 add_custom_command(
     TARGET ${PROJECT_NAME}.elf POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Oihex $<TARGET_FILE:${PROJECT_NAME}.elf> ${PROJECT_BINARY_DIR}/${PROJECT_NAME}.hex
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${PROJECT_NAME}.elf> ${PROJECT_BINARY_DIR}/${PROJECT_NAME}.bin
+    COMMENT "Building hex & bin file..."
+    COMMENT "EXCUTABLE SIZE:"
     COMMAND ${SIZE} ${PROJECT_NAME}.elf
-    COMMENT "Building hex & bin file and printing executable size"
   )

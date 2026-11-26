@@ -1,1 +1,57 @@
-{"version":3,"configurePresets":[{"name":"sentry","generator":"Ninja","binaryDir":"${sourceDir}/build_sentry","cacheVariables":{"ROBOT_PROFILE":"sentry","CONFIG_PROFILE":"sentry_2026","CMAKE_BUILD_TYPE":"Debug"}}],"buildPresets":[{"name":"sentry","configurePreset":"sentry"}]}
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "infantry",
+      "displayName": "Infantry (build/)",
+      "description": "Default infantry profile: apps/infantry + config/infantry_2026",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "ROBOT_PROFILE": "infantry",
+        "CONFIG_PROFILE": "infantry_2026"
+      }
+    },
+    {
+      "name": "sentry",
+      "displayName": "Sentry (build_sentry/)",
+      "description": "Sentry profile: apps/sentry + config/sentry_2026",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build_sentry",
+      "cacheVariables": {
+        "ROBOT_PROFILE": "sentry",
+        "CONFIG_PROFILE": "sentry_2026"
+      }
+    },
+    {
+      "name": "heavy",
+      "displayName": "Heavy (build_heavy/)",
+      "description": "Heavy skeleton: apps/heavy + config/heavy_2026",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build_heavy",
+      "cacheVariables": {
+        "ROBOT_PROFILE": "heavy",
+        "CONFIG_PROFILE": "heavy_2026"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "infantry",
+      "configurePreset": "infantry"
+    },
+    {
+      "name": "sentry",
+      "configurePreset": "sentry"
+    },
+    {
+      "name": "heavy",
+      "configurePreset": "heavy"
+    }
+  ]
+}

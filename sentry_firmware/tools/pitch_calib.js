@@ -22,9 +22,11 @@
  *     - 带相位余弦模型(φ 网格搜索)。
  *   三者都打印残差 RMS,按残差与参数可信度取舍,不盲信某一个。
  *
- * 为什么不用 variables.read 读这些量:
- *   复合类型(`->` 成员)在本工程 LTO 后的 DWARF 里不可用,variables.read 会静默返回垃圾。
- *   这里走 debug.evaluate(暂停态求值),路径由 gdb 解析,成员访问可靠。
+ * 为什么**不再**用暂停式读取(pitch_calib 曾有"暂停 → debug.evaluate → 恢复"的老实现):
+ *   暂停内核会让 GimbalTask 停发 CAN 控制帧,C620 约 100 ms 无帧即触发信号丢失保护按 0 输出,
+ *   枪管被重力砸下、恢复后又抬起来 —— "每读一个点云台抽一下",读数与被测现象互相污染
+ *   (2026-11-16 实测:用户看到"一读探针 pitch 就往下砸",据此得出的"极限环"结论全部作废)。
+ *   现改为 variables.read 直接读 DWARF 成员路径,由 EmberProbe 后台 DAP 读取,不打断控制环。
  *
  * 用法:
  *   node tools/pitch_calib.js add <标签>     采一个点(车静止在该角度时执行)
@@ -56,20 +58,43 @@ const CSV = path.join(WORKSPACE, "build", "pitch_calib.csv");
 const JAM_CSV = path.join(WORKSPACE, "build", "pitch_jam.csv");
 const BOOT_MS_VAR = "chassis_last_ms";
 const SETTLE_SPEED_APS = 30; // 转速超过它说明还在动,采到的不是稳态
-const MAX_OUT_REF = 8000;   // 与 gimbal.c 中 pitch speed_PID.MaxOut 保持一致(2026-11-15 判据实验 4000→8000)    // speed_PID.MaxOut(gimbal.c:206),峰值电流码上限
-const INT_LIMIT_REF = 1200;  // speed_PID.IntegralLimit(gimbal.c:204),静止保持的实际上限
+const MAX_OUT_REF = 8000;   // speed_PID.MaxOut(gimbal.c:206),峰值电流码上限(2026-11-15 判据实验 4000→8000)
+const INT_LIMIT_REF = 3000;  // speed_PID.IntegralLimit(gimbal.c:204),静止保持的实际上限
+                             // 必须与**板上固件**一致:2026-11-16 判据实验把它改成了 3000(源码暂留 3000),
+                             // 若将来回退 1200 要同步改这里,否则 jam/add 的"顶积分"判据会误报
 const TEMP_WARN = 55;        // M3508/C620 堵转测温提醒阈值,℃
 
-// 标定要读的量(表达式由 gdb 解析,均可静态解析的成员路径)
+// 标定要读的量(DWARF 成员路径,由 variables.read 非侵入读取)
 const EXPR = {
-    ang: "gimba_IMU_data->Pitch",                                  // θ,IMU 欧拉 pitch(度)
+    ang: "gimbal_imu_data->Pitch",                                  // θ,IMU 欧拉 pitch(度)
     ref: "gimbal_cmd_recv.pitch",                                  // 角度环目标(度),ref-ang 即角度误差
     out: "pitch_motor->motor_controller.speed_PID.Output",          // 稳态保持电流码
     iout: "pitch_motor->motor_controller.speed_PID.Iout",           // 其中积分项(判断是否贴 IntegralLimit)
     spd: "pitch_motor->measure.speed_aps",                          // 转速(判稳态)
-    gyro: "gimba_IMU_data->Gyro[0]",                                // 速度环实际反馈(IMU X 轴角速度),查符号用
+    gyro: "gimbal_imu_data->Gyro[0]",                                // 速度环实际反馈(IMU X 轴角速度),查符号用
     cur: "pitch_motor->measure.real_current",                       // 实际电流
     temp: "pitch_motor->measure.temperature"                        // 温度
+};
+
+// "解锁回中"诊断要看的全景:IMU 姿态 + 两个轴的目标 + 闭环输出 + 状态机。
+// 命名与 robot_cmd.c / gimbal.c / chassis.c 里的全局一致;静态变量(robot_state、
+// authority_source)在 DWARF 里带名字,用 variables.read 按裸名即可读(非侵入)。
+const STATE_EXPR = {
+    pitch: "gimbal_imu_data->Pitch",         // IMU 解算 pitch(角度环反馈域,度)
+    roll: "gimbal_imu_data->Roll",           // 侧倾,判车身是否歪(歪了 pitch 也在变)
+    yaw: "gimbal_imu_data->Yaw",             // 世界系 yaw
+    gx: "gimbal_imu_data->Gyro[0]",          // 芯片原始轴角速度,pitch 速度环用的就是它
+    gy: "gimbal_imu_data->Gyro[1]",
+    gz: "gimbal_imu_data->Gyro[2]",
+    tgtPitch: "gimbal_cmd_recv.pitch",      // pitch 目标角(解锁时被置 0)
+    tgtYaw: "gimbal_cmd_recv.yaw",          // yaw 目标角(解锁时锚定为当时总角)
+    offset: "chassis_cmd_recv.offset_angle",// 云台相对车头的角偏差,yaw 回正/跟随都用它
+    state: "robot_state",                   // ROBOT_STOP=0 / ROBOT_READY=1
+    auth: "authority_source",               // 0 RC_LOST / 1 KILL_SWITCH / 2 STOP_LATCHED / 3 RUN
+    out: "pitch_motor->motor_controller.speed_PID.Output",
+    iout: "pitch_motor->motor_controller.speed_PID.Iout",
+    cur: "pitch_motor->measure.real_current",
+    temp: "pitch_motor->measure.temperature"
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -80,32 +105,16 @@ async function readVar(name) {
     return r.values?.[name]?.value ?? null;
 }
 
-/** 恢复目标并确认真的在跑(同 read_motor.js:侵入式读取可能把核心留在暂停) */
-async function resumeAndVerify() {
-    let lastErr = null;
-    for (let i = 0; i < 5; i++) {
-        try {
-            await call(WORKSPACE, "debug.control", { action: "continue" }, 30000);
-        } catch (e) {
-            if (e.code !== "TARGET_NOT_PAUSED") lastErr = e.message;
-        }
-        await sleep(350);
-        try {
-            const s = await call(WORKSPACE, "debug.status", null, 20000);
-            if (s.state !== "running") continue;
-            const a = await readVar(BOOT_MS_VAR);
-            await sleep(300);
-            const b = await readVar(BOOT_MS_VAR);
-            if (typeof a === "number" && typeof b === "number" && b > a) return { bootMs: b };
-            lastErr = `${BOOT_MS_VAR} 两次读数不增长(${a} → ${b}),核心疑似仍停着`;
-        } catch (e) {
-            lastErr = e.message;
-        }
-    }
-    return { failed: true, lastErr };
-}
+/**
+ * 枚举字面量 → 数值。某些后端对 enum 类型的量回的是字面量(`ROBOT_STOP`)而不是数字,
+ * 光看数字会全部落空(2026-11-16 实测:state/auth 两列显示 null)。
+ */
+const ENUM_NUM = {
+    ROBOT_STOP: 0, ROBOT_READY: 1,
+    AUTH_RC_LOST: 0, AUTH_KILL_SWITCH: 1, AUTH_STOP_LATCHED: 2, AUTH_RUN: 3,
+    GIMBAL_ZERO_FORCE: 0, GIMBAL_GYRO_MODE: 1
+};
 
-/** 从 debug.evaluate 的返回里抠出数值(不同后端外壳形状不同,逐个试) */
 function pickValue(r) {
     if (r == null) return null;
     if (typeof r === "number") return r;
@@ -114,7 +123,9 @@ function pickValue(r) {
         if (typeof c === "number") return c;
         if (c && typeof c.value === "number") return c.value;
         if (typeof c === "string") {
-            const n = Number(c.trim());
+            const t = c.trim();
+            if (Object.prototype.hasOwnProperty.call(ENUM_NUM, t)) return ENUM_NUM[t];
+            const n = Number(t);
             if (c.trim() !== "" && !Number.isNaN(n)) return n;
             // uint8_t 这类字符型量 gdb 可能回成 `22 '\\026'`,抠前导数字
             const m = c.match(/-?\d+(\.\d+)?/);
@@ -128,41 +139,87 @@ function pickValue(r) {
     return null;
 }
 
-/** 暂停一次,批量求值,再校验恢复 */
-async function evaluateAll(exprs) {
-    const status = await call(WORKSPACE, "debug.status", null, 20000);
-    if (!status.session) {
-        throw new Error("没有活动的调试会话。先执行: node .agents/skills/mcu-debug-control/scripts/debug.js --workspace <工程> --start --attach");
-    }
-    if (status.paused) {
-        const r = await resumeAndVerify();
-        if (r && r.failed) throw new Error(`目标处于暂停状态且无法恢复(${r.lastErr || "未知"})`);
-    }
-
-    await call(WORKSPACE, "debug.control", { action: "pause" }, 30000);
+/**
+ * 一次 variables.read 批量读全部字段。
+ *
+ * **绝不暂停内核**(2026-11-16 血的教训):暂停会让 GimbalTask 停发 CAN 控制帧 →
+ * C620 约 100 ms 无帧即按 0 输出(信号丢失保护)→ 枪管被重力砸下 → 恢复核心后力矩回来又抬起。
+ * 结果是"每读一个点云台抽一下",读数与现象互相污染,还差点把这笔账算到重力前馈头上
+ * (当时看到的"极限环""自己上下动"全是这个伪影)。
+ * variables.read 走 EmberProbe 后台 DAP 读取,不打断控制环,所以这里既不需要
+ * debug.status / pause / continue,也不再需要 resumeAndVerify 那套兜底。
+ *
+ * 固件身份改为看本次读取自带的 firmwareConsistency:不一致只告警不中断
+ * (通常只是重编译改了注释/行号,地址没变;真不一致时读数是垃圾,需要重烧)。
+ */
+async function readBatch(exprs) {
+    const keys = Object.keys(exprs);
+    const names = keys.map((k) => exprs[k]);
+    const r = await call(WORKSPACE, "variables.read", { variables: names.map((name) => ({ name })) }, 30000);
     const vals = {};
     const raw = {};
-    try {
-        for (const [key, expression] of Object.entries(exprs)) {
-            const r = await call(WORKSPACE, "debug.evaluate", { expression }, 30000);
-            raw[key] = r;
-            vals[key] = pickValue(r);
-        }
-        vals[BOOT_MS_VAR] = await readVar(BOOT_MS_VAR);
-    } finally {
-        // 恢复统一走 resumeAndVerify
-    }
-
-    const resumed = await resumeAndVerify();
-    if (resumed && resumed.failed) {
-        const e = new Error(`恢复目标失败(${resumed.lastErr || "未知"}),这次读数可能是冻结值`);
-        e.raw = raw;
-        throw e;
-    }
-    return { vals, raw };
+    keys.forEach((key, i) => {
+        const entry = r.values?.[names[i]];
+        raw[key] = entry ?? null;
+        // diagnostic 命中(LIVE_NULL_POINTER 等)说明这一项这次没拿到,记 null 而不是猜一个值
+        vals[key] = entry && !entry.diagnostic ? pickValue(entry) : null;
+    });
+    const fc = r.firmwareConsistency;
+    return { vals, raw, firmwareMismatch: Boolean(fc && fc.status === "mismatch"), firmware: fc };
 }
 
-// ---------------------------------------------------------------- 采点
+/** 标定用:批量读 + boot 时间戳(识别中途重启 —— 重启后标记的 base 全作废) */
+async function evaluateAll(exprs) {
+    const { vals, raw, firmwareMismatch, firmware } = await readBatch(exprs);
+    try {
+        vals[BOOT_MS_VAR] = await readVar(BOOT_MS_VAR);
+    } catch {
+        vals[BOOT_MS_VAR] = null;
+    }
+    return { vals, raw, firmwareMismatch, firmware };
+}
+
+// ---------------------------------------------------------------- 状态全景
+
+/**
+ * 宽松版批量读:任何一项没拿到只把它记成 null,不影响其它字段。
+ * (诊断用,不希望因为某个符号名对不上就整条命令失败)
+ *
+ * `stale` 的语义变了(2026-11-16):以前指"核心没能恢复,读数可能是冻结值";
+ * 现在读取不再暂停核心,所以它表示"ELF 与板上固件哈希不一致,地址可能对不上"。
+ */
+async function evaluateLenient(exprs) {
+    const { vals, raw, firmwareMismatch, firmware } = await readBatch(exprs);
+    const errors = {};
+    for (const key of Object.keys(exprs)) {
+        if (vals[key] == null) {
+            const entry = raw[key];
+            errors[key] = entry?.diagnostic?.message || "未取到值";
+        }
+    }
+    try {
+        vals[BOOT_MS_VAR] = await readVar(BOOT_MS_VAR);
+    } catch {
+        vals[BOOT_MS_VAR] = null;
+    }
+    const stale = firmwareMismatch
+        ? `ELF(${String(firmware?.elfSha256).slice(0, 8)}) 与板上固件(${String(firmware?.flashedSha256).slice(0, 8)}) 不一致,地址可能对不上,建议重烧`
+        : null;
+    return { vals, errors, stale };
+}
+
+const AUTH_NAME = { 0: "RC_LOST(遥控丢失)", 1: "KILL_SWITCH(上挡零力)", 2: "STOP_LATCHED(急停锁存)", 3: "RUN(已解锁)" };
+
+async function stateCommand(times, intervalMs) {
+    const samples = [];
+    for (let i = 0; i < times; i++) {
+        if (i > 0) await sleep(intervalMs);
+        const { vals, errors, stale } = await evaluateLenient(STATE_EXPR);
+        samples.push({ at: new Date().toISOString(), ...vals, errors, stale });
+    }
+    return samples;
+}
+
 
 /** 采一次:暂停 → 批量求值 → 校验恢复,返回归一化后的点 */
 async function sampleOnce(label) {
@@ -183,7 +240,7 @@ async function sampleOnce(label) {
     };
     if (p.ang != null && p.ref != null) p.err = Number((p.ref - p.ang).toFixed(2));
     if (p.ang == null || p.out == null) {
-        const e = new Error("没能从 debug.evaluate 取到 ang/out 数值(返回形状可能变了),原始返回见 raw");
+        const e = new Error("没能从 variables.read 取到 ang/out 数值(变量名或 ELF 绑定有问题),原始返回见 raw");
         e.raw = raw;
         throw e;
     }
@@ -211,8 +268,8 @@ async function addPoint(label) {
 async function jamTest(label, secs) {
     const rows = [];
     const t0 = Date.now();
-    // 每个样本的真实耗时约 0.7~1.0s(暂停核心只占其中 ~0.25s,其余是恢复校验),按样本数循环更可控
-    const targetSamples = Math.max(5, Math.round((secs * 1000) / 900));
+    // 非侵入读取后每个样本约 0.1~0.3s(不再有暂停/恢复开销),按时间窗折算样本数,最少 5 点
+    const targetSamples = Math.max(5, Math.round((secs * 1000) / 150));
     let stopped = null;
 
     for (let i = 0; i < targetSamples; i++) {
@@ -342,6 +399,30 @@ function ls2(rows, x1f, x2f) {
     return { k1: sol[0], k2: sol[1], b: sol[2], sse };
 }
 
+/** 单基函数模型:y ≈ k·f(x) + b(两参数最小二乘) */
+function ls1(rows, xf) {
+    let s11 = 0;
+    let s1 = 0;
+    let s1y = 0;
+    let sy = 0;
+    let n = 0;
+    for (const r of rows) {
+        const x = xf(r);
+        s11 += x * x;
+        s1 += x;
+        s1y += x * r.out;
+        sy += r.out;
+        n += 1;
+    }
+    const det = s11 * n - s1 * s1;
+    if (Math.abs(det) < 1e-9) return null;
+    const k = (s1y * n - s1 * sy) / det;
+    const b = (s11 * sy - s1 * s1y) / det;
+    let sse = 0;
+    for (const r of rows) sse += (r.out - (k * xf(r) + b)) ** 2;
+    return { k1: k, b, sse };
+}
+
 /** 常数模型:y ≈ b */
 function lsConst(rows) {
     const n = rows.length;
@@ -371,9 +452,34 @@ function solve3(A, B) {
 const DEG2RAD = Math.PI / 180;
 const rms = (sse, n) => Math.sqrt(sse / Math.max(n, 1));
 
-function fit() {
-    const rows = readRows();
-    if (rows.length < 3) return { ok: false, message: `只有 ${rows.length} 个点,至少 3 个(建议 8 个以上且覆盖行程两端)` };
+function fit(useCur) {
+    const raw = readRows();
+    if (raw.length < 3) return { ok: false, message: `只有 ${raw.length} 个点,至少 3 个(建议 8 个以上且覆盖行程两端)` };
+
+    // 拟合对象用哪个量:
+    //   默认 `cur`(measure.real_current,电机实际输出的总电流码)= 保持该角度真正需要的力矩。
+    //   一旦固件里开了前馈,`out`(速度环自己算出来的部分)就只剩"前馈没补上的残差",拿它拟合会把
+    //   已经补上的那半量又算一遍 —— 所以标定必须用 cur。前馈关闭时 cur ≈ out,两者等价。
+    const key = useCur === false ? "out" : "cur";
+
+    // 同一角度箱可能有多趟数据(比如一趟往下推、一趟往上推)。**必须先合并再拟合**:
+    // 摩擦力总是反抗运动方向,下推时向上、上推时向下,两趟的偏差近似等大反号,
+    // 逐点放进最小二乘会把 ±摩擦当成重力,拟合出一条假的单调趋势(甚至把相位拉到 ±100°)。
+    // 按 2° 分箱取平均即可把这部分抵掉 —— 前提是上下两趟都采到了。
+    const byBin = new Map();
+    for (const r of raw) {
+        const key2 = Math.round(r.ang / SWEEP_BIN_DEG) * SWEEP_BIN_DEG;
+        if (!byBin.has(key2)) byBin.set(key2, []);
+        byBin.get(key2).push(r);
+    }
+    const rows = [...byBin.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([binAng, g]) => ({
+            ang: g.reduce((s, x) => s + x.ang, 0) / g.length,
+            out: g.reduce((s, x) => s + (Number.isFinite(x[key]) ? x[key] : x.out), 0) / g.length,
+            n: g.length
+        }));
+    const paired = [...byBin.values()].filter((g) => g.length >= 2).length;
 
     const angs = rows.map((r) => r.ang);
     const span = Math.max(...angs) - Math.min(...angs);
@@ -381,11 +487,11 @@ function fit() {
     // ① 常数模型
     const c0 = lsConst(rows);
     // ② 余弦模型(A·cosθ + B)
-    const c1 = ls2(rows, (r) => Math.cos(r.ang * DEG2RAD), () => 0);
-    // ③ 带相位余弦:φ 网格搜索(±40°,1° 步长),每个 φ 用 ② 的两个基拟合
+    const c1 = ls1(rows, (r) => Math.cos(r.ang * DEG2RAD));
+    // ③ 带相位余弦:φ 网格搜索(±180°,1° 步长),每个 φ 用 ② 的两参数拟合
     let best = null;
-    for (let phi = -40; phi <= 40; phi += 1) {
-        const r = ls2(rows, (x) => Math.cos((x.ang - phi) * DEG2RAD), () => 0);
+    for (let phi = -180; phi <= 180; phi += 1) {
+        const r = ls1(rows, (x) => Math.cos((x.ang - phi) * DEG2RAD));
         if (r && (!best || r.sse < best.sse)) best = { ...r, phi };
     }
 
@@ -393,6 +499,10 @@ function fit() {
     const out = {
         ok: true,
         points: n,
+        fittedOn: key,
+        rawPoints: raw.length,
+        angleBins: byBin.size,
+        pairedBins: paired,
         angRange: [Math.min(...angs), Math.max(...angs)],
         angleSpanDeg: Number(span.toFixed(1)),
         models: {
@@ -402,14 +512,290 @@ function fit() {
         }
     };
 
-    // 推荐:残差接近时优先常数模型(参数少、窄行程下不易过拟合)
-    const simple = Math.abs(c1 ? c1.k1 : 0) < 0.25 * Math.abs(c0.b) || span < 30;
-    out.recommend = simple
-        ? { note: "行程窄/cos 项贡献小,推荐只填 OFFSET(常数重力前馈),A 保持 0", ...out.models.constant, A: 0 }
-        : { note: "cos 项显著,推荐余弦模型", ...out.models.cos };
+    // 推荐:谁的残差明显更小就用谁;残差接近时优先参数少的(窄行程下不易过拟合)
+    const rc0 = rms(c0.sse, n);
+    const rc1 = c1 ? rms(c1.sse, n) : Infinity;
+    const rcp = best ? rms(best.sse, n) : Infinity;
+    const warn = [];
+    if (paired === 0 && raw.length >= 6) {
+        warn.push(
+            "所有角度箱都只有一趟数据 —— 摩擦力偏差没有抵消,拟合出的斜率里可能混着摩擦。\n" +
+                "  建议再扫一趟**相反方向**(下推过一趟就再来一趟上推),同角度箱会自动平均,相位才可信。"
+        );
+    }
+    if (best && Math.abs(best.phi) > 30) {
+        warn.push(
+            `最佳相位 φ=${best.phi}°。若质心明显偏离俯仰轴(自瞄模块装在轴前/轴上方),φ≠0 是正常的;\n` +
+                `  但**上下两趟都采到**才排得掉摩擦偏差 —— 只有一趟时这个 φ 很可能是摩擦造成的假相位。`
+        );
+    }
 
-    out.rows = rows.map((r) => ({ ang: Number(r.ang.toFixed(2)), out: Math.round(r.out), iout: Math.round(r.iout), spd: Number(r.spd.toFixed(1)) }));
+    let recommend;
+    if (rcp < rc0 * 0.6 && rcp <= rc1 * 1.02) {
+        recommend = { note: "带相位余弦拟合明显更好,推荐三参数", ...out.models.cosPhase };
+    } else if (c1 && rc1 < rc0 * 0.6) {
+        recommend = { note: "余弦项显著,推荐 A·cosθ + B", ...out.models.cos };
+    } else {
+        recommend = {
+            note: `行程内保持电流变化不明显(RMS ${rc0.toFixed(0)} vs 常数模型的 ${rc0.toFixed(0)}),推荐只填 OFFSET`,
+            ...out.models.constant,
+            A: 0
+        };
+    }
+    out.recommend = recommend;
+    out.residuals = { constant: Number(rc0.toFixed(1)), cos: Number(rc1.toFixed(1)), cosPhase: Number(rcp.toFixed(1)) };
+    out.warnings = warn;
+
+    out.rows = rows.map((r) => ({ ang: Number(r.ang.toFixed(2)), out: Math.round(r.out), samples: r.n }));
     return out;
+}
+
+// ---------------------------------------------------------------- 连续扫掠采点
+
+/** 扫掠采点的"准静态"门限:角度变化率 ≤3°/s 且电机转速 ≤100apS 才算稳态点 */
+const SWEEP_STATIC_RATE = 3.0;
+const SWEEP_STATIC_SPD = 100;
+const SWEEP_BIN_DEG = 2.0;
+const SWEEP_CSV = path.join(WORKSPACE, "build", "pitch_sweep.csv");
+
+function median(list) {
+    const a = list.slice().sort((x, y) => x - y);
+    if (!a.length) return null;
+    const m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+/**
+ * 连续扫掠采点:一次 variables.sample 拿整条曲线(非侵入,不暂停核心),再把"准静态"样本
+ * 按角度分箱取中位数,每箱落成一个标定点写进 pitch_calib.csv。
+ *
+ * 为什么需要它:人手推杆只能"从最上面慢慢到最下面",没法精确停在每个整数角度,而 add 要求
+ * "停住→说一声→采一点",既慢又强人所难。扫掠一次 30 秒就能覆盖全行程。
+ * 准静态筛选(|dθ/dt| 小、|speed_aps| 小)保证采到的仍是"保持力矩",不含加减速惯性项 ——
+ * 这是把扫掠数据当前馈标定用的关键前提。
+ */
+async function sweepTest(secs, intervalMs, label) {
+    const count = Math.max(2, Math.min(1000, Math.round((secs * 1000) / intervalMs)));
+    const keys = Object.keys(EXPR);
+    const names = keys.map((k) => EXPR[k]);
+
+    // 预热:standalone sampling 通道在冷启动时,第一条 RPC 常报 "failed to read memory"
+    // (OpenOCD 还在起)。先用一次轻量 variables.read 把通道叫醒,失败就重试,不消耗采样窗口。
+    for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+            await call(WORKSPACE, "variables.read", { variables: names.slice(0, 2).map((name) => ({ name })) }, 20000);
+            await sleep(150);
+            break;
+        } catch {
+            if (attempt === 4) break;
+            await sleep(700);
+        }
+    }
+    // 分块采样:单个 variables.sample 请求太长容易被打断(实测 40s×1000 点会整条失败,且失败时
+    // 一点数据都拿不到)。改成每块 100 点(约 4s),失败重试 3 次;已采到的部分保留,
+    // 只要拿到 ≥40% 就照常出数据并在结果里标 partial —— 用户推一趟不容易,不能因为一次抖动全丢。
+    const CHUNK = 100;
+    const samples = [];
+    let hardError = null;
+    let failedChunks = 0;
+    for (let got = 0; got < count; got += CHUNK) {
+        const n = Math.min(CHUNK, count - got);
+        let batch = null;
+        for (let attempt = 0; attempt < 3 && batch === null; attempt++) {
+            try {
+                const r = await call(
+                    WORKSPACE,
+                    "variables.sample",
+                    { variables: names.map((name) => ({ name })), count: n, intervalMs },
+                    Math.min(2147483647, n * intervalMs + 30000)
+                );
+                batch = Array.isArray(r.samples) ? r.samples : [];
+            } catch (e) {
+                hardError = e.message || String(e);
+                if (attempt < 2) await sleep(800);
+            }
+        }
+        if (batch === null) {
+            failedChunks++;
+            continue;
+        }
+        samples.push(...batch);
+    }
+    if (!samples.length) {
+        return {
+            ok: false,
+            message: `采样失败:${hardError || "无样本"} —— 拿到 0/${count} 点,${failedChunks} 块失败。先 node tools/doctor.js 看探针/ELF 绑定`
+        };
+    }
+    // 只要拿到任何数据就落盘:用户推一趟不容易,哪怕只剩 4 秒也可能正好覆盖到要判定的方向。
+    const partial = samples.length < count * 0.95 || failedChunks > 0;
+
+    const rows = samples.map((s) => {
+        const row = { t: s.timestamp };
+        keys.forEach((k, i) => {
+            const v = s.values?.[names[i]];
+            row[k] = v && typeof v.value === "number" ? v.value : null;
+        });
+        return row;
+    });
+
+    // 用中心差分估每点的角速度,再标"准静态"。两端邻居不足时退化成单侧差分。
+    for (let i = 0; i < rows.length; i++) {
+        const a = rows[Math.max(0, i - 1)];
+        const b = rows[Math.min(rows.length - 1, i + 1)];
+        const dt = (b.t - a.t) / 1000;
+        const ok = dt > 0 && [rows[i].ang, a.ang, b.ang].every((v) => typeof v === "number");
+        rows[i].rate = ok ? (b.ang - a.ang) / dt : null;
+        rows[i].static = ok && Math.abs(rows[i].rate) <= SWEEP_STATIC_RATE && Math.abs(rows[i].spd || 0) <= SWEEP_STATIC_SPD;
+    }
+
+    fs.mkdirSync(path.dirname(SWEEP_CSV), { recursive: true });
+    fs.writeFileSync(
+        SWEEP_CSV,
+        "t_ms,ang_deg,ref_deg,err_deg,out,iout,spd_aps,gyro,cur,temp,rate_deg_s,static\n" +
+            rows
+                .map((x) =>
+                    [
+                        x.t,
+                        x.ang,
+                        x.ref,
+                        x.err,
+                        x.out,
+                        x.iout,
+                        x.spd,
+                        x.gyro,
+                        x.cur,
+                        x.temp,
+                        x.rate == null ? "" : x.rate.toFixed(2),
+                        x.static ? 1 : 0
+                    ].join(",")
+                )
+                .join("\n") +
+            "\n"
+    );
+
+    // 按角度分箱:同一箱里若有 ≥3 个准静态样本,用中位数代表该角度的保持电流
+    const bins = new Map();
+    for (const x of rows) {
+        if (!x.static || typeof x.ang !== "number" || typeof x.out !== "number") continue;
+        const key = Math.round(x.ang / SWEEP_BIN_DEG) * SWEEP_BIN_DEG;
+        if (!bins.has(key)) bins.set(key, []);
+        bins.get(key).push(x);
+    }
+
+    let bootMs = null;
+    try {
+        bootMs = await readVar(BOOT_MS_VAR);
+    } catch {
+        bootMs = null;
+    }
+
+    const at = new Date().toISOString();
+    fs.mkdirSync(path.dirname(CSV), { recursive: true });
+    if (!fs.existsSync(CSV)) fs.writeFileSync(CSV, "at,label,ang_deg,ref_deg,err_deg,out,iout,spd_aps,cur,temp,boot_ms\n");
+
+    const table = [];
+    let appended = 0;
+    for (const binAng of [...bins.keys()].sort((a, b) => a - b)) {
+        const group = bins.get(binAng);
+        if (group.length < 3) continue;
+        const ang = median(group.map((g) => g.ang));
+        const ref = median(group.map((g) => g.ref));
+        const out = median(group.map((g) => g.out));
+        const iout = median(group.map((g) => g.iout));
+        const cur = median(group.map((g) => g.cur));
+        const temp = median(group.map((g) => g.temp));
+        const spd = median(group.map((g) => g.spd));
+        const err = ref != null && ang != null ? ref - ang : null;
+        fs.appendFileSync(
+            CSV,
+            `${at},${label}@${binAng},${ang.toFixed(2)},${ref == null ? "" : ref.toFixed(2)},${err == null ? "" : err.toFixed(2)},` +
+                `${out.toFixed(1)},${iout == null ? "" : iout.toFixed(1)},${spd == null ? "" : spd.toFixed(1)},` +
+                `${cur == null ? "" : Math.round(cur)},${temp == null ? "" : Math.round(temp)},${bootMs == null ? "" : bootMs}\n`
+        );
+        appended++;
+        table.push({ binAng, n: group.length, ang, out, cur, iout, temp });
+    }
+
+    const angs = rows.map((x) => x.ang).filter((v) => typeof v === "number");
+    return {
+        ok: true,
+        partial,
+        failedChunks,
+        samples: rows.length,
+        staticSamples: rows.filter((x) => x.static).length,
+        seconds: rows.length ? (rows[rows.length - 1].t - rows[0].t) / 1000 : 0,
+        angRange: angs.length ? [Math.min(...angs), Math.max(...angs)] : null,
+        bins: table,
+        appended,
+        bootMs
+    };
+}
+
+// ---------------------------------------------------------------- 离线重算(不用再推一趟)
+
+/**
+ * 从已保存的原始扫掠波形重新分箱入库。
+ *
+ * 为什么要它:扫掠期间如果一直推着杆,云台会"追着目标跑"、稳态误差 1~3°,此时的速度环电流里
+ * 混着跟不上的滞后分量,不能当"保持重力所需的力矩"。真正的保持点只出现在你松杆停顿的时刻
+ * (|误差| 很小)。这个命令让你用不同的误差门限反复重算同一份波形,不用再麻烦你重推。
+ */
+function rebuild(maxErr, minSamples, labelPrefix) {
+    if (!fs.existsSync(SWEEP_CSV)) return { ok: false, message: `没有原始波形 ${path.relative(WORKSPACE, SWEEP_CSV)},先跑一次 sweep` };
+    const lines = fs.readFileSync(SWEEP_CSV, "utf8").trim().split(/\r?\n/);
+    const head = lines[0].split(",");
+    const idx = (k) => head.indexOf(k);
+    const rows = lines.slice(1).map((l) => {
+        const c = l.split(",");
+        return {
+            t: Number(c[idx("t_ms")]),
+            ang: Number(c[idx("ang_deg")]),
+            ref: Number(c[idx("ref_deg")]),
+            err: Number(c[idx("err_deg")]),
+            out: Number(c[idx("out")]),
+            iout: Number(c[idx("iout")]),
+            spd: Number(c[idx("spd_aps")]),
+            cur: Number(c[idx("cur")]),
+            temp: Number(c[idx("temp")]),
+            static: c[idx("static")] === "1"
+        };
+    });
+    const picked = rows.filter((x) => x.static && Number.isFinite(x.err) && Math.abs(x.err) <= maxErr);
+    if (!picked.length) return { ok: false, message: `误差门限 ${maxErr}° 下一个点都没有 —— 放宽到 2.0° 再试` };
+
+    const bins = new Map();
+    for (const x of picked) {
+        const key = Math.round(x.ang / SWEEP_BIN_DEG) * SWEEP_BIN_DEG;
+        if (!bins.has(key)) bins.set(key, []);
+        bins.get(key).push(x);
+    }
+
+    const at = new Date().toISOString();
+    fs.mkdirSync(path.dirname(CSV), { recursive: true });
+    if (!fs.existsSync(CSV)) fs.writeFileSync(CSV, "at,label,ang_deg,ref_deg,err_deg,out,iout,spd_aps,cur,temp,boot_ms\n");
+
+    const table = [];
+    let appended = 0;
+    for (const binAng of [...bins.keys()].sort((a, b) => a - b)) {
+        const group = bins.get(binAng);
+        if (group.length < minSamples) continue;
+        const ang = median(group.map((g) => g.ang));
+        const ref = median(group.map((g) => g.ref));
+        const out = median(group.map((g) => g.out));
+        const iout = median(group.map((g) => g.iout));
+        const cur = median(group.map((g) => g.cur));
+        const temp = median(group.map((g) => g.temp));
+        const spd = median(group.map((g) => g.spd));
+        fs.appendFileSync(
+            CSV,
+            `${at},${labelPrefix}@${binAng},${ang.toFixed(2)},${ref.toFixed(2)},${(ref - ang).toFixed(2)},` +
+                `${out.toFixed(1)},${iout.toFixed(1)},${spd.toFixed(1)},${Math.round(cur)},${Math.round(temp)},\n`
+        );
+        appended++;
+        table.push({ binAng, n: group.length, ang, err: ref - ang, out, cur, iout, temp });
+    }
+    return { ok: true, scanned: rows.length, picked: picked.length, maxErr, bins: table, appended };
 }
 
 // ---------------------------------------------------------------- CLI
@@ -426,9 +812,15 @@ function fit() {
             "  node tools/pitch_calib.js jam [标签] --secs 8\n" +
             "                                          连续采样\"卡住\"状态,判缺力/卡死/振荡\n" +
             "                                          (采样期间请持续上推,试图抬起)\n" +
+            "  node tools/pitch_calib.js sweep [标签] --secs 30 --interval 40\n" +
+            "                                          连续扫掠采点:你从最上面慢慢推到最下面,\n" +
+            "                                          我一次采整条曲线,自动按角度分箱入库(推荐)\n" +
             "  node tools/pitch_calib.js show          看已采的点\n" +
             "  node tools/pitch_calib.js fit           拟合并打印建议宏值\n" +
-            "  node tools/pitch_calib.js clear         清空采集数据\n"
+            "  node tools/pitch_calib.js clear         清空采集数据\n" +
+            "  node tools/pitch_calib.js state [--times 3] [--interval 800]\n" +
+            "                                          IMU 姿态 + 两轴目标 + 闭环输出 + 状态机全景\n" +
+            "                                          (诊断\"解锁回中\"是否真的在闭环、是否被重力拖走)\n"
         );
         return;
     }
@@ -450,6 +842,34 @@ function fit() {
         return;
     }
 
+    if (cmd === "state") {
+        const argTimes = argv.indexOf("--times");
+        const argInterval = argv.indexOf("--interval");
+        const times = argTimes >= 0 ? Math.max(1, Math.min(20, parseInt(argv[argTimes + 1], 10) || 1)) : 1;
+        const intervalMs = argInterval >= 0 ? Math.max(200, parseInt(argv[argInterval + 1], 10) || 800) : 800;
+        const samples = await stateCommand(times, intervalMs);
+        if (wantJson) return void process.stdout.write(JSON.stringify({ ok: true, samples }, null, 2) + "\n");
+
+        const f = (v, w, d = 2) => (typeof v === "number" ? v.toFixed(d).padStart(w) : "?".padStart(w));
+        const lines = [];
+        lines.push("  时刻      pitch    roll     yaw   目标pitch  误差   Output   Iout    电流  温度   状态机");
+        for (const s of samples) {
+            const err = typeof s.pitch === "number" && typeof s.tgtPitch === "number" ? s.tgtPitch - s.pitch : null;
+            const t = new Date(s.at).toLocaleTimeString("zh-CN", { hour12: false });
+            lines.push(
+                `  ${t} ${f(s.pitch, 8)} ${f(s.roll, 7)} ${f(s.yaw, 7)} ${f(s.tgtPitch, 9)} ${f(err, 6)} ` +
+                `${f(s.out, 8, 0)} ${f(s.iout, 6, 0)} ${f(s.cur, 7, 0)} ${f(s.temp, 5, 0)}   ` +
+                `${AUTH_NAME[s.auth] || s.auth}${s.state === 1 ? " / READY" : s.state === 0 ? " / STOP" : ""}`
+            );
+        }
+        process.stdout.write(lines.join("\n") + "\n");
+        const errKeys = Object.keys(samples[0].errors || {});
+        if (errKeys.length) process.stdout.write(`  ⚠ 取不到的字段:${errKeys.join(", ")}\n`);
+        const stale = samples.find((s) => s.stale);
+        if (stale) process.stdout.write(`  ⚠ ${stale.stale}\n`);
+        return;
+    }
+
     if (cmd === "show") {
         const rows = readRows();
         if (rows.length === 0) return void process.stdout.write("还没有采点。\n");
@@ -466,17 +886,25 @@ function fit() {
     }
 
     if (cmd === "fit") {
-        const r = fit();
+        const useOut = argv.includes("--use") && argv[argv.indexOf("--use") + 1] === "out";
+        const r = fit(!useOut);
         if (wantJson) return void process.stdout.write(JSON.stringify(r, null, 2) + "\n");
         if (!r.ok) return void process.stdout.write(`拟合失败:${r.message}\n`);
 
         const lines = [];
-        lines.push(`样本 ${r.points} 点  行程 ${r.angRange[0].toFixed(1)}° ~ ${r.angRange[1].toFixed(1)}°  (跨度 ${r.angleSpanDeg}°)`);
+        lines.push(
+            `样本 ${r.rawPoints} 行 → 按 2° 分箱得 ${r.points} 个角度点(其中 ${r.pairedBins} 个箱有 ≥2 趟数据)\n` +
+                `  行程 ${r.angRange[0].toFixed(1)}° ~ ${r.angRange[1].toFixed(1)}°  (跨度 ${r.angleSpanDeg}°)\n` +
+                `  拟合目标:${r.fittedOn === "cur" ? "measure.real_current(实际总电流,含前馈)" : "速度环 Output(前馈关闭时才等于总电流)"}`
+        );
         lines.push("");
-        lines.push("  模型                         残差RMS");
-        lines.push(`  常数   I = ${r.models.constant.OFFSET}                  ${r.models.constant.rms}`);
-        if (r.models.cos) lines.push(`  余弦   I = ${r.models.cos.A}·cosθ + ${r.models.cos.OFFSET}     ${r.models.cos.rms}`);
-        if (r.models.cosPhase) lines.push(`  带相位 I = ${r.models.cosPhase.A}·cos(θ−${r.models.cosPhase.PHASE}°) + ${r.models.cosPhase.OFFSET}  ${r.models.cosPhase.rms}`);
+        lines.push("  模型                                      残差RMS(码)");
+        lines.push(`  常数     I = ${String(r.models.constant.OFFSET).padStart(6)}                    ${r.models.constant.rms}`);
+        if (r.models.cos) lines.push(`  余弦     I = ${String(r.models.cos.A).padStart(6)}·cosθ + ${String(r.models.cos.OFFSET).padStart(6)}         ${r.models.cos.rms}`);
+        if (r.models.cosPhase)
+            lines.push(
+                `  带相位   I = ${String(r.models.cosPhase.A).padStart(6)}·cos(θ−${r.models.cosPhase.PHASE}°) + ${String(r.models.cosPhase.OFFSET).padStart(6)}  ${r.models.cosPhase.rms}`
+            );
         lines.push("");
         const rec = r.recommend;
         lines.push(`推荐:${rec.note}`);
@@ -492,6 +920,10 @@ function fit() {
         lines.push(`  #define PITCH_GRAVITY_FF_GAIN 1.0f`);
         lines.push("");
         lines.push("注意:FF_LIMIT 由 A 与 OFFSET 自动推导(config:460),改完 A/OFFSET 不必再动手。");
+        if (r.warnings && r.warnings.length) {
+            lines.push("");
+            r.warnings.forEach((w) => lines.push(`⚠ ${w}`));
+        }
         process.stdout.write(lines.join("\n") + "\n");
         return;
     }
@@ -520,6 +952,71 @@ function fit() {
         L.push("明细(θ/ 目标/ 误差/ Output/ Iout/ 转速/ 陀螺X/ 电流/ 温度):");
         for (const x of r.rows) L.push(`  ${String(x.ang).padStart(7)}  ${String(x.ref).padStart(7)}  ${String(x.err).padStart(7)}  ${String(x.out).padStart(6)}  ${String(x.iout).padStart(6)}  ${String(x.spd).padStart(7)}  ${String(x.gyro).padStart(7)}  ${String(x.cur).padStart(6)}  ${x.temp}`);
         process.stdout.write(L.join("\n") + "\n");
+        return;
+    }
+
+    if (cmd === "sweep") {
+        const args = argv.slice(1).filter((a) => a !== "--json");
+        let secs = 30;
+        let interval = 40;
+        let label = "sweep";
+        for (let i = 0; i < args.length; i++) {
+            if (args[i] === "--secs") secs = Math.max(3, Math.min(120, Number(args[++i]) || 30));
+            else if (args[i] === "--interval") interval = Math.max(20, Math.min(500, Number(args[++i]) || 40));
+            else if (!args[i].startsWith("--")) label = args[i];
+        }
+        const r = await sweepTest(secs, interval, label);
+        if (wantJson) return void process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+        if (!r.ok) return void process.stdout.write(`扫掠采样失败:${r.message}\n`);
+
+        const L = [];
+        L.push(`扫掠 "${label}":${r.samples} 样本 / ${r.seconds.toFixed(1)}s,其中准静态 ${r.staticSamples} 点`);
+        if (r.partial) L.push(`⚠ 有 ${r.failedChunks} 块采样失败(共重试 3 次),数据不完整 —— 缺的角度可以再扫一趟补上`);
+        if (r.angRange) L.push(`角度覆盖 ${r.angRange[0].toFixed(1)}° ~ ${r.angRange[1].toFixed(1)}°`);
+        L.push(`原始波形 ${path.relative(WORKSPACE, SWEEP_CSV)}   标定点 ${r.appended} 个已并入 ${path.relative(WORKSPACE, CSV)}`);
+        L.push("");
+        if (r.bins.length) {
+            L.push("  角度箱    样本   保持电流Output   电流码  积分Iout  温度");
+            for (const b of r.bins) {
+                L.push(
+                    `  ${String(b.binAng).padStart(6)}°  ${String(b.n).padStart(5)}  ${String(Math.round(b.out)).padStart(12)}  ` +
+                        `${String(Math.round(b.cur)).padStart(8)}  ${String(Math.round(b.iout)).padStart(8)}  ${b.temp == null ? "" : Math.round(b.temp)}`
+                );
+            }
+            L.push("");
+            L.push("下一步:node tools/pitch_calib.js fit");
+        } else {
+            L.push("没有凑够准静态样本 —— 推得太快或一直在加减速。放慢重来(全程 15~20s,中途可停一下)。");
+        }
+        process.stdout.write(L.join("\n") + "\n");
+        return;
+    }
+
+    if (cmd === "rebuild") {
+        const args = argv.slice(1).filter((a) => a !== "--json");
+        let maxErr = 1.0;
+        let minSamples = 3;
+        let label = "R";
+        for (let i = 0; i < args.length; i++) {
+            if (args[i] === "--max-err") maxErr = Math.max(0.1, Number(args[++i]) || 1.0);
+            else if (args[i] === "--min") minSamples = Math.max(1, Number(args[++i]) || 3);
+            else if (!args[i].startsWith("--")) label = args[i];
+        }
+        const r = rebuild(maxErr, minSamples, label);
+        if (wantJson) return void process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+        if (!r.ok) return void process.stdout.write(`重算失败:${r.message}\n`);
+        process.stdout.write(
+            `从原始波形重算:扫 ${r.scanned} 行,|误差|≤${r.maxErr}° 的保持点 ${r.picked} 个,入库 ${r.appended} 箱\n\n`
+        );
+        if (r.bins.length) {
+            process.stdout.write("  角度      样本   误差   保持电流   积分   温度\n");
+            for (const b of r.bins)
+                process.stdout.write(
+                    `  ${String(b.binAng).padStart(6)}°  ${String(b.n).padStart(5)}  ${b.err.toFixed(2).padStart(5)}  ` +
+                        `${String(Math.round(b.out)).padStart(8)}  ${String(Math.round(b.iout)).padStart(5)}  ${Math.round(b.temp)}\n`
+                );
+            process.stdout.write("\n下一步:node tools/pitch_calib.js fit\n");
+        }
         return;
     }
 

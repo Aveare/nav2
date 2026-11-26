@@ -48,6 +48,9 @@ Module.symvers
 Mkfile.old
 dkms.conf
 build
+build_heavy/
+build_sentry/
+build-release*/
 ./idea
 .vscode/.cortex-debug.peripherals.state.json
 .vscode/.cortex-debug.registers.state.json
@@ -61,3 +64,20 @@ build
 
 # IDE 本机计划/会话产物,不入库
 .zcode/
+
+# 工程文档引用的上游配图(41.1 MB / 61 个,来自 basic_framework @1a136eb1 的 .assets/)
+# 只在本机保留以便 .Doc 里的文档正常显示;图片的是否一致性由 skill 快照与 manifest 管,
+# 不入库以免仓库膨胀。备份来源:C:\Users\ZhuanZ\Desktop\JIT_yaw_bench\.assets
+.assets/
+
+# 采集数据(原始 CSV 不入库,按总计划书 §6 存本机)
+exports/
+
+# Python 字节码缓存
+tools/__pycache__/
+__pycache__/
+build_make/
+
+# 兵种构建的固定烧录副本(build.ps1 -Current 产物,不入库)
+firmware/current.elf
+firmware/current.txt

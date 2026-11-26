@@ -8,8 +8,8 @@
 # That keeps Ctrl+Shift+B working on machines where the tools are installed but not on PATH.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('sentry')]
-    [string]$Profile = 'sentry',
+    [ValidateSet('infantry', 'sentry', 'heavy')]
+    [string]$Profile = 'infantry',
     [switch]$Current
 )
 

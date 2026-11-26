@@ -45,7 +45,11 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-
+/* FreeRTOS 堆本体(DEV-20261122-02):configAPPLICATION_ALLOCATED_HEAP=1 时 heap_4 只
+ * 声明 extern,数组由应用侧定义。放 .ccmbss(NOLOAD) 段 → 主 RAM 省 28KB。
+ * CCM 启动不清零、无上电初值:heap_4 首次分配时自建空闲链,不需要零初始化。
+ * CCM 不通 DMA,堆里只有任务栈/TCB/队列(CPU 访问),放这里安全。 */
+uint8_t ucHeap[configTOTAL_HEAP_SIZE] __attribute__((section(".ccmbss"), aligned(8)));
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
 

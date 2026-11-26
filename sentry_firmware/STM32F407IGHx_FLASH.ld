@@ -101,6 +101,10 @@ SECTIONS
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
+    /* B1 框架锚点:fw_abi_anchor/fw_version 零引用也必须存活(防 GLOB 空验的
+     * nm 断言依赖);--gc-sections 会回收未引用段,KEEP 钉住。方案 §6-B1。 */
+    KEEP(*(.fw_anchor))
+    . = ALIGN(4);
   } >FLASH
 
   .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >FLASH
@@ -164,6 +168,25 @@ SECTIONS
     . = ALIGN(4);
     _eccmram = .;       /* create a global symbol at ccmram end */
   } >CCMRAM AT> FLASH
+
+  /* CCM 零初始化段(NOLOAD,DEV-20261122-02):启动代码对 CCM 不拷贝、不清零,
+   * 放进本段的变量必须自带初始化路径,规则:
+   *   ① 只放纯 CPU 访问的大对象 —— CCM 不通 DMA,任何 DMA 目标缓冲
+   *      (usart_pool.ring、CAN FIFO 等)禁止放入;
+   *   ② ucHeap:heap_4 首次分配时自建空闲链,无需清零;
+   *   ③ 遥测环:TelemetryInit() 在任务启动前清零并赋 tag。
+   * NOLOAD = 不占 Flash 加载映像,但也没有上电初值。
+   * 命名注意:不能叫 .ccmram_* —— 上面 .ccmram 段的 *(.ccmram*) 通配会先把它吞进
+   * 可加载段,Flash 里多出一份全零映像。 */
+  .ccmbss (NOLOAD) :
+  {
+    . = ALIGN(8);
+    _sccmbss = .;
+    *(.ccmbss)
+    *(.ccmbss*)
+    . = ALIGN(8);
+    _eccmbss = .;
+  } >CCMRAM
 
   
   /* Uninitialized data section */

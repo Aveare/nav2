@@ -45,6 +45,7 @@
 
 /* USER CODE BEGIN Includes */
 /* Section where include file can be added */
+extern void fw_assert_fail(const char *file, int line); /* B1 configASSERT 改造出口(ports/freertos) */
 /* USER CODE END Includes */
 
 /* Ensure definitions are only used by the compiler, and not by the assembler. */
@@ -64,13 +65,25 @@
 #define configTICK_RATE_HZ                       ((TickType_t)1000)
 #define configMAX_PRIORITIES                     ( 7 )
 #define configMINIMAL_STACK_SIZE                 ((uint16_t)128)
-#define configTOTAL_HEAP_SIZE                    ((size_t)20000)
+#define configTOTAL_HEAP_SIZE                    ((size_t)28000)
+/* 2026-11-21:20KB → 24KB → 28KB(DEV-20261121-09)。5 个任务栈(按 word 计)= 11.8KB、
+ * 9 个 DJI 电机实例 + 9 个守护实例 + 消息中心队列都从堆上分配;扩容两次后仍出现
+ * "启动射击即 HardFault",说明余量依旧不足 —— 宁可用 RAM 换稳定(占用约 90%)。 */
+#define configAPPLICATION_ALLOCATED_HEAP         1
+/* 2026-11-22(DEV-20261122-02):FreeRTOS 堆搬到 CCMRAM,主 RAM 省 28KB,尺寸/行为零变化。
+ * 打开本宏后 heap_4 只声明 extern,ucHeap 数组由应用侧定义在 Src/freertos.c 的 USER CODE 区,
+ * 放入 .ccmbss(NOLOAD)段;堆里只有任务栈/TCB/队列,纯 CPU 访问,CCM 对 CPU 零等待,
+ * DMA 不碰堆内容 —— DMA 目标缓冲一律不放 CCM(见链接脚本 .ccmbss 段注释)。 */
 #define configMAX_TASK_NAME_LEN                  ( 32 )
 #define configUSE_16_BIT_TICKS                   0
 #define configUSE_MUTEXES                        1
 #define configQUEUE_REGISTRY_SIZE                8
 #define configUSE_COUNTING_SEMAPHORES            1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION  1
+/* 2026-11-21:打开栈溢出检测(方法 2:填 0xA5 哨兵 + 切换时检查)。
+ * 实车出现"射击瞬间整车僵死",递归解析曾是最强嫌疑;开着它,溢出会被钩子捕获并
+ * 记录死因后复位(蜂鸣五短),而不是变成无声的 HardFault(DEV-20261121-08)。 */
+#define configCHECK_FOR_STACK_OVERFLOW           2
 /* USER CODE BEGIN MESSAGE_BUFFER_LENGTH_TYPE */
 /* Defaults to size_t for backward compatibility, but can be changed
    if lengths will always be less than the number of bytes in a size_t. */
@@ -120,7 +133,15 @@ See http://www.FreeRTOS.org/RTOS-Cortex-M3-M4.html. */
 /* Normal assert() semantics without relying on the provision of an assert.h
 header file. */
 /* USER CODE BEGIN 1 */
-#define configASSERT( x ) if ((x) == 0) {taskDISABLE_INTERRUPTS(); for( ;; );}
+/* B1 守卫(方案 §8🔺"CubeMX 再生成覆盖"):三处手改在再生成时会丢失,静态断言钉死
+ * —— 再生成后堆回 15360 或双堆定义时编译期即 FAIL。布局见 DEV-20261122-02:
+ * ucHeap 由应用侧定义在 Src/freertos.c USER CODE 区(.ccmbss)。 */
+_Static_assert(configTOTAL_HEAP_SIZE >= 28000, "FreeRTOS heap must stay >= 28000 (CCMRAM 布局, DEV-20261122-02)");
+_Static_assert(configAPPLICATION_ALLOCATED_HEAP == 1, "ucHeap must be app-allocated in .ccmbss (DEV-20261122-02)");
+/* B1 改造(方案 §4-T02):configASSERT 不再 for(;;) 挂死(grep 盲区),改走 err
+ * FAILFAST 分投递 + 受控复位;断言路径仅内核契约破坏时触达(行为变化点,随 B1 批准)。
+ * 旧实现见 git 历史 arch-before-B1(DEV-20261122-06)。 */
+#define configASSERT( x ) do { if ((x) == 0) { fw_assert_fail( __FILE__, __LINE__ ); } } while (0)
 /* USER CODE END 1 */
 
 /* Definitions that map the FreeRTOS port interrupt handlers to their CMSIS

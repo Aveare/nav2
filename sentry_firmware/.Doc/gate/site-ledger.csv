@@ -1,0 +1,95 @@
+kind,file,line,function,category,disposal,batch
+for(;;),Inc/FreeRTOSConfig.h,135,-,configASSERT 宏,合法(grep 盲区),-
+while(1),Src/main.c,136,-,CubeMX 生成区,合法豁免,-
+while(1),Src/main.c,224,-,CubeMX 生成区,合法豁免,-
+while(1),Src/stm32f4xx_it.c,97,-,CubeMX 生成区,合法豁免,-
+while(1),Src/stm32f4xx_it.c,124,-,CubeMX 生成区,合法豁免,-
+while(1),Src/stm32f4xx_it.c,139,-,CubeMX 生成区,合法豁免,-
+while(1),Src/stm32f4xx_it.c,154,-,CubeMX 生成区,合法豁免,-
+while(1),Src/stm32f4xx_it.c,169,-,CubeMX 生成区,合法豁免,-
+for(;;),application/robot_task.c,66,-,运行期待分类,B3 按台账处置,B3
+for(;;),application/robot_task.c,83,-,运行期待分类,B3 按台账处置,B3
+for(;;),application/robot_task.c,101,-,运行期待分类,B3 按台账处置,B3
+for(;;),application/robot_task.c,119,-,运行期待分类,B3 按台账处置,B3
+for(;;),application/robot_task.c,138,-,运行期待分类,B3 按台账处置,B3
+for(;;),bsp/bsp_tools.c,38,-,B0 删除集,随删除,B0
+while(1),bsp/bsp_tools.c,48,-,B0 删除集,随删除,B0
+while(1),bsp/can/bsp_can.c,141,CANSendFIFOTransmit,启动期白名单,白名单锚注,B3
+while(1),bsp/can/bsp_can.c,148,CANSendFIFOTransmit,启动期白名单,白名单锚注,B3
+malloc,bsp/can/bsp_can.c,153,CANSendFIFOTransmit,运行期待分类,B3 按台账处置,B3
+while(1),bsp/fault/bsp_fault.c,61,-,复位后不可达,不进 T02 台账(G4 redflags 已豁免),-
+malloc,bsp/gpio/bsp_gpio.c,40,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,19,-,B0 删除集,随删除,B0
+malloc,bsp/iic/bsp_iic.c,22,-,B0 删除集,随删除,B0
+malloc,bsp/iic/bsp_iic.c,23,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,47,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,55,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,72,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,80,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,91,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,108,-,B0 删除集,随删除,B0
+while(1),bsp/iic/bsp_iic.c,127,-,B0 删除集,随删除,B0
+while(1),bsp/pwm/bsp_pwm.c,38,-,运行期待分类,B3 按台账处置,B3
+malloc,bsp/pwm/bsp_pwm.c,40,-,运行期待分类,B3 按台账处置,B3
+while(1),bsp/spi/bsp_spi.c,21,-,B0 删除集,随删除,B0
+malloc,bsp/spi/bsp_spi.c,23,-,B0 删除集,随删除,B0
+while(1),bsp/spi/bsp_spi.c,42,-,B0 删除集,随删除,B0
+while(1),bsp/spi/bsp_spi.c,67,-,B0 删除集,随删除,B0
+while(1),bsp/spi/bsp_spi.c,94,-,B0 删除集,随删除,B0
+while(1),bsp/spi/bsp_spi.c,141,-,B0 删除集,随删除,B0
+while(1),bsp/spi/bsp_spi.c,150,-,B0 删除集,随删除,B0
+while(1),bsp/usart/bsp_usart.c,91,-,运行期待分类,B3 按台账处置,B3
+while(1),bsp/usart/bsp_usart.c,96,-,运行期待分类,B3 按台账处置,B3
+while(1),bsp/usart/bsp_usart.c,203,-,运行期待分类,B3 按台账处置,B3
+malloc,modules/TFminiPlus/tfminiplus.c,16,-,B0 删除集,随删除,B0
+while(1),modules/alarm/buzzer.c,50,-,运行期待分类,B3 按台账处置,B3
+malloc,modules/alarm/buzzer.c,52,-,运行期待分类,B3 按台账处置,B3
+malloc,modules/algorithm/kalman_filter.c,155,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,157,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,159,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,161,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,163,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,167,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,169,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,171,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,175,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,180,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,187,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,193,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,198,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,203,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,208,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,209,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,218,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,224,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,225,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,232,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,237,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,242,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,246,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,247,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,248,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,249,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/kalman_filter.c,250,-,启动期一次性,调用点登记豁免,B6a
+malloc,modules/algorithm/user_lib.c,28,-,运行期待分类,B3 按台账处置,B3
+malloc,modules/can_comm/can_comm.c,89,-,运行期待分类,B3 按台账处置,B3
+while(1),modules/imu/ins_task.c,111,-,启动期白名单,白名单锚注,B3
+malloc,modules/ist8310/ist8310.c,71,-,B0 删除集,随删除,B0
+while(1),modules/ist8310/ist8310.c,101,-,B0 删除集,随删除,B0
+while(1),modules/message_center/message_center.c,24,-,启动期白名单,白名单锚注,B3
+while(1),modules/message_center/message_center.c,34,-,启动期白名单,白名单锚注,B3
+malloc,modules/message_center/message_center.c,54,-,message_center,随删除,B7
+malloc,modules/message_center/message_center.c,66,-,message_center,随删除,B7
+malloc,modules/message_center/message_center.c,72,-,message_center,随删除,B7
+while(1),modules/motor/DJImotor/dji_motor.c,81,-,启动期白名单,白名单锚注,B3
+while(1),modules/motor/DJImotor/dji_motor.c,116,-,启动期白名单,白名单锚注,B3
+while(1),modules/motor/DJImotor/dji_motor.c,144,-,启动期白名单,白名单锚注,B3
+while(1),modules/motor/DJImotor/dji_motor.c,162,-,启动期白名单,白名单锚注,B3
+while(1),modules/motor/DJImotor/dji_motor.c,170,-,启动期白名单,白名单锚注,B3
+malloc,modules/motor/DJImotor/dji_motor.c,221,-,运行期待分类,B3 按台账处置,B3
+malloc,modules/motor/HTmotor/HT04.c,116,-,运行期待分类,B3 按台账处置,B3
+while(1),modules/motor/HTmotor/HT04.c,164,-,运行期待分类,B3 按台账处置,B3
+malloc,modules/motor/LKmotor/LK9025.c,63,-,B0 删除集,随删除,B0
+malloc,modules/motor/LKmotor/LK9025.c,64,-,B0 删除集,随删除,B0
+malloc,modules/motor/servo_motor/servo_motor.c,23,-,运行期待分类,B3 按台账处置,B3
+malloc,modules/super_cap/super_cap.c,34,-,运行期待分类,B3 按台账处置,B3

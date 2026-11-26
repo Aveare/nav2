@@ -36,7 +36,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "robot.h"
-#include "bsp_log.h"
+#include "log_port.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -120,8 +120,8 @@ int main(void)
   MX_CRC_Init();
   MX_DAC_Init();
   /* USER CODE BEGIN 2 */
-	RobotInit(); // 唯一的初始化函数
-  LOGINFO("[main] SystemInit() and RobotInit() done");
+	robot_init(); // 唯一的初始化函数
+  LOG_INFO("[main] SystemInit() and RobotInit() done");
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in freertos.c) */

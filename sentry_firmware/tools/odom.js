@@ -28,7 +28,7 @@
  *      所以读完后必须验新鲜度:恢复后 250ms 再读 chassis_last_ms,不增长就报错,绝不返回可疑的 0;
  *   ② total_angle 是 float32,total_round 溢出前长时间驾驶会让分辨率变粗(>16M deg 时 1deg≈0.1mm),可接受。
  *
- * 常量来源:运行时解析 config/robot_infantry_2026.h,不复制数值,免得改了参数这里悄悄过期。
+ * 常量来源:运行时解析 config/infantry_2026/config.h,不复制数值,免得改了参数这里悄悄过期。
  *
  * 用法:
  *   node tools/odom.js mark B1-slow                     # 起点打标(车静止、四轮着地)
@@ -47,8 +47,9 @@ const path = require("path");
 const { call } = require(path.join(__dirname, "..", ".agents", "skills", "_emberprobe", "agent-client.js"));
 
 const WORKSPACE = path.resolve(__dirname, "..");
+const preflight = require("./lib/preflight"); // 固件身份预检:板上不是这份 ELF 就拒绝出数(2026-11-16 事故)
 const STATE_FILE = path.join(WORKSPACE, "build", "odom_marks.json");
-const CONFIG_H = path.join(WORKSPACE, "config", "robot_infantry_2026.h");
+const CONFIG_H = path.join(WORKSPACE, "config", "config.h");
 const MOTORS = ["motor_lf", "motor_rf", "motor_lb", "motor_rb"];
 const LABEL = { motor_lf: "LF", motor_rf: "RF", motor_lb: "LB", motor_rb: "RB" };
 // 各轴的正解权重:距离 = Σ(sign_i * Δ_i)/4 * mmPerDeg,与下方注释的固件公式严格同构
@@ -137,6 +138,8 @@ async function resumeAndVerify() {
 async function readWheels() {
     const status = await call(WORKSPACE, "debug.status", null, 20000);
     if (!status.session) throw new Error("没有活动的调试会话。先执行: node .agents/skills/mcu-debug-control/scripts/debug.js --workspace <工程> --start --attach");
+    // 先验身份:固件不匹配时四轮指针会指向错地址,读出来的是垃圾(2026-11-16 事故)
+    await preflight.assertFirmware(call, WORKSPACE);
     if (status.paused) {
         const r = await resumeAndVerify();
         if (r && r.failed) throw new Error(`目标处于暂停状态且无法恢复(${r.lastErr || "未知"}):核心停着时 total_angle 不累加,先让板子跑起来再重跑`);

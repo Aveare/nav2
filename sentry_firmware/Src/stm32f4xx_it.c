@@ -22,6 +22,7 @@
 #include "stm32f4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "fault_port.h" // 致命故障记录:HardFault 留痕后立即复位(DEV-20261121-08)
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,12 +106,24 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-  asm("bx lr");
+  /* DEV-20261121-09:记录"故障此刻"的详细信息后立即复位,而不是死等看门狗:
+   *   CFSR = 故障类别(取指/数据访问/压栈失败…),BFAR = 出错地址,PC = 出错指令,
+   *   HFSR = 硬件故障总状态。全部写入 RTC 备份寄存器,下次开机由 fault_dump_to_uart()
+   *   以 ASCII 打到 USART1(普通 USB 串口可读,无需调试器)。 */
+  {
+    uint32_t lr;
+    __asm volatile ("mov %0, lr" : "=r" (lr));
+    /* EXC_RETURN bit2 = 0:使用 MSP;= 1:使用 PSP(被抢占的是任务) */
+    uint32_t *frame = ((lr & 0x4u) != 0u) ? (uint32_t *)__get_PSP() : (uint32_t *)__get_MSP();
+    uint32_t pc = frame[6]; // 压栈帧:R0 R1 R2 R3 R12 LR PC xPSR
+    uint32_t caller = frame[5]; // 压栈的 LR = 故障函数的返回地址(定位"谁调用了它")
+    fault_record_detail(FAULT_CODE_HARDFAULT, (uint32_t)SCB->CFSR, (uint32_t)SCB->BFAR, pc,
+                      (uint32_t)SCB->HFSR, caller, (uint32_t)frame);
+  }
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
     /* USER CODE BEGIN W1_HardFault_IRQn 0 */
-    asm("bx lr");
     /* USER CODE END W1_HardFault_IRQn 0 */
   }
 }

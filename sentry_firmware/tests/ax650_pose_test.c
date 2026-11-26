@@ -1,7 +1,7 @@
 /**
  * @file    ax650_pose_test.c
  * @brief   AX650 姿态角约定、封包布局与非法输入测试
- * @layer   MODULE
+ * @layer   TESTS
  * @note    只操作内存；固定测试帧来自已核对的 RMCVSerial 布局。
  */
 #include "ax650_pose.h"
@@ -13,11 +13,72 @@
 
 static float GetFloat(const uint8_t *in)
 {
-    const uint32_t bits = (uint32_t)in[0] | ((uint32_t)in[1] << 8) |
-                          ((uint32_t)in[2] << 16) | ((uint32_t)in[3] << 24);
+    const uint32_t bits = (uint32_t)in[0] | ((uint32_t)in[1] << 8) | ((uint32_t)in[2] << 16) |
+                          ((uint32_t)in[3] << 24);
     float value;
     memcpy(&value, &bits, sizeof(value));
     return value;
+}
+
+static void PutFloat(uint8_t *out, float value)
+{
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    out[0] = (uint8_t)bits;
+    out[1] = (uint8_t)(bits >> 8);
+    out[2] = (uint8_t)(bits >> 16);
+    out[3] = (uint8_t)(bits >> 24);
+}
+
+static size_t MakeCommand(uint8_t frame[39], float yaw, float pitch, uint8_t target_id)
+{
+    memset(frame, 0, 39u);
+    frame[0] = 0xA5u;
+    frame[1] = 30u;
+    frame[4] = ax650_pose_crc8(frame, 4u);
+    frame[5] = 0x03u;
+    frame[6] = 0x05u;
+    PutFloat(frame + 7u, yaw);
+    PutFloat(frame + 11u, pitch);
+    frame[35] = 1u;
+    frame[36] = target_id;
+    const uint16_t crc = ax650_pose_crc16(frame, 37u);
+    frame[37] = (uint8_t)crc;
+    frame[38] = (uint8_t)(crc >> 8);
+    return 39u;
+}
+
+static unsigned command_count;
+static ax650_command_t last_command;
+static void ax650_uart1_on_command(void *context, const ax650_command_t *command)
+{
+    (void)context;
+    last_command = *command;
+    ++command_count;
+}
+
+static void TestCommandParser(void)
+{
+    ax650_parser_t parser;
+    uint8_t frame[39];
+    const size_t size = MakeCommand(frame, 37.5f, -8.25f, 4u);
+    ax650_parser_init(&parser);
+    ax650_parser_feed(&parser, frame, 7u, ax650_uart1_on_command, NULL);
+    assert(command_count == 0u);
+    ax650_parser_feed(&parser, frame + 7u, size - 7u, ax650_uart1_on_command, NULL);
+    assert(command_count == 1u);
+    assert(last_command.yaw == 37.5f && last_command.pitch == -8.25f);
+    assert(last_command.shoot == 1u && last_command.target_id == 4u);
+
+    uint8_t joined[79];
+    joined[0] = 0x55u;
+    memcpy(joined + 1u, frame, size);
+    memcpy(joined + 1u + size, frame, size);
+    ax650_parser_feed(&parser, joined, sizeof(joined), ax650_uart1_on_command, NULL);
+    assert(command_count == 3u);
+    frame[20] ^= 0x80u;
+    ax650_parser_feed(&parser, frame, size, ax650_uart1_on_command, NULL);
+    assert(command_count == 3u);
 }
 
 static void QuaternionMultiply(const float a[4], const float b[4], float out[4])
@@ -44,13 +105,14 @@ static void MakeZxyQuaternion(float yaw, float pitch, float roll, float out[4])
 
 static void TestPose(void)
 {
-    static const uint8_t zero_golden[26] = {
-        0xA5u, 0x11u, 0x00u, 0x00u, 0x22u, 0x21u, 0x10u,
-        0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u,
-        0u, 0u, 0u, 0u, 0u, 0xB6u, 0xD2u};
+    static const uint8_t zero_golden[AX650_POSE_FRAME_SIZE] = {
+        0xA5u, 0x16u, 0x00u, 0x00u, 0x58u, 0x21u, 0x10u, 0u, 0u, 0u,
+        0u,    0u,    0u,    0u,    0u,    0u,    0u,    0u, 0u, 0u,
+        0u,    0u,    0u,    0u,    0xD2u, 0x04u, 0u,    0u, 0x67u, 0xAFu,
+        0xA7u};
     float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};
-    uint8_t frame[26];
-    assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u, 0u) == sizeof(frame));
+    uint8_t frame[AX650_POSE_FRAME_SIZE];
+    assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, 0u, 1234u, 103u) == sizeof(frame));
     assert(memcmp(frame, zero_golden, sizeof(frame)) == 0);
 
     unsigned rotations = 0;
@@ -63,42 +125,46 @@ static void TestPose(void)
                 const float scale = (rotations & 1u) ? -3.0f : 2.0f;
                 for (unsigned j = 0; j < 4u; ++j)
                     q[j] *= scale;
-                assert(Ax650PosePack(frame, sizeof(frame), q, 24.5f, 1u,
-                                      (uint8_t)rotations) == sizeof(frame));
+                assert(ax650_pose_pack(frame, sizeof(frame), q, 24.5f, 1u, (uint8_t)rotations,
+                                       1000u + rotations, 103u) ==
+                       sizeof(frame));
                 assert(fabsf(GetFloat(frame + 7u) - (float)yaw) < 0.0002f);
                 assert(fabsf(GetFloat(frame + 11u) - (float)pitch) < 0.0002f);
                 assert(fabsf(GetFloat(frame + 15u) - (float)roll) < 0.0002f);
                 assert(GetFloat(frame + 19u) == 24.5f);
                 assert(frame[23] == 1u);
+                assert(((uint32_t)frame[24] | ((uint32_t)frame[25] << 8) |
+                        ((uint32_t)frame[26] << 16) | ((uint32_t)frame[27] << 24)) ==
+                       1000u + rotations);
                 assert(frame[3] == (uint8_t)rotations);
-                assert(frame[4] == Ax650PoseCrc8(frame, 4u));
-                assert(((uint16_t)frame[24] | (uint16_t)((uint16_t)frame[25] << 8)) ==
-                       Ax650PoseCrc16(frame, 24u));
+                assert(frame[4] == ax650_pose_crc8(frame, 4u));
+                assert(frame[28] == 103u);
+                assert(((uint16_t)frame[29] | (uint16_t)((uint16_t)frame[30] << 8)) ==
+                       ax650_pose_crc16(frame, 29u));
                 ++rotations;
             }
     assert(rotations == 225u);
     MakeZxyQuaternion(0.0f, 90.0f, 0.0f, q);
-    assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
     MakeZxyQuaternion(0.0f, -90.0f, 0.0f, q);
-    assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
     memset(q, 0, sizeof(q));
-    assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
     q[0] = NAN;
-    assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
     q[0] = INFINITY;
-    assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
     q[0] = FLT_MAX;
-    assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
     q[0] = 1.0f;
-    assert(Ax650PosePack(frame, sizeof(frame), q, NAN, 0u, 0u) == 0u);
-    assert(Ax650PosePack(frame, sizeof(frame), q, -1.0f, 0u, 0u) == 0u);
-    assert(Ax650PosePack(frame, sizeof(frame) - 1u, q, 0.0f, 0u, 0u) == 0u);
-    assert(Ax650PosePack(NULL, sizeof(frame), q, 0.0f, 0u, 0u) == 0u);
-    assert(Ax650PosePack(frame, sizeof(frame), NULL, 0.0f, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, NAN, 0u, 0u, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), q, -1.0f, 0u, 0u, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame) - 1u, q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(NULL, sizeof(frame), q, 0.0f, 0u, 0u, 0u, 0u) == 0u);
+    assert(ax650_pose_pack(frame, sizeof(frame), NULL, 0.0f, 0u, 0u, 0u, 0u) == 0u);
     for (unsigned seq = 254u; seq < 258u; ++seq)
     {
-        assert(Ax650PosePack(frame, sizeof(frame), q, 0.0f, 0u,
-                              (uint8_t)seq) == sizeof(frame));
+        assert(ax650_pose_pack(frame, sizeof(frame), q, 0.0f, 0u, (uint8_t)seq, seq, 0u) == sizeof(frame));
         assert(frame[3] == (uint8_t)seq);
     }
 }
@@ -106,6 +172,7 @@ static void TestPose(void)
 int main(void)
 {
     TestPose();
-    puts("PASS: golden 26-byte frame, 225 ZXY rotations, normalization/sign, CRC, invalid inputs and sequence wrap");
+    TestCommandParser();
+    puts("PASS: pose TX plus fragmented/sticky/corrupt AX650 command RX");
     return 0;
 }

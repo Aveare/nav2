@@ -30,7 +30,9 @@ OPT = -Og
 # paths
 #######################################
 # Build path
-BUILD_DIR = build
+# 2026-11-20:与 CMake 的 build/ 分开,避免两套体系同名产物(elf/map/bin)互相覆盖。
+# 2026-11-23:主构建 = CMake Presets + build.ps1;tasks.json 的 Legacy: 任务仍读 $(BUILD_DIR)。
+BUILD_DIR = build_make
 
 ######################################
 # source
@@ -107,64 +109,70 @@ Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ioreq.c \
 Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c \
 Middlewares/Third_Party/SEGGER/RTT/SEGGER_RTT_printf.c \
 Middlewares/Third_Party/SEGGER/RTT/SEGGER_RTT.c \
-bsp/dwt/bsp_dwt.c \
-bsp/pwm/bsp_pwm.c \
-bsp/gpio/bsp_gpio.c \
-bsp/spi/bsp_spi.c \
-bsp/iic/bsp_iic.c \
-bsp/can/bsp_can.c \
-bsp/usart/bsp_usart.c \
-bsp/usb/bsp_usb.c \
-bsp/log/bsp_log.c \
-bsp/flash/bsp_flash.c \
-bsp/bsp_tools.c \
-modules/algorithm/controller.c \
-modules/algorithm/kalman_filter.c \
-modules/algorithm/QuaternionEKF.c \
-modules/algorithm/crc8.c \
-modules/algorithm/crc16.c \
-modules/algorithm/user_lib.c \
-modules/bluetooth/HC05.c \
-modules/BMI088/bmi088.c \
-modules/imu/BMI088driver.c \
-modules/imu/BMI088Middleware.c \
-modules/imu/ins_task.c \
-modules/ist8310/ist8310.c \
-modules/master_machine/master_process.c \
-modules/master_machine/seasky_protocol.c \
-modules/master_machine/ax650_pose.c \
-modules/master_machine/ax650_uart1.c \
-modules/motor/DJImotor/dji_motor.c \
-modules/motor/HTmotor/HT04.c \
-modules/motor/LKmotor/LK9025.c \
-modules/motor/DMmotor/dmmotor.c \
-modules/motor/step_motor/step_motor.c \
-modules/motor/servo_motor/servo_motor.c \
-modules/motor/motor_task.c \
-modules/motor/power_control.c \
-modules/oled/oled.c \
-modules/referee/crc_ref.c \
-modules/referee/rm_referee.c \
-modules/referee/referee_UI.c \
-modules/referee/referee_task.c \
-modules/referee/referee_custom.c \
-modules/referee/referee_vt.c \
-modules/referee/referee_vt_task.c \
-modules/remote/remote_control.c \
-modules/super_cap/super_cap.c \
-modules/can_comm/can_comm.c \
-modules/message_center/message_center.c \
-modules/daemon/daemon.c \
-modules/telemetry/telemetry.c \
-modules/alarm/buzzer.c \
-application/gimbal/gimbal.c \
-application/gimbal/sentry_yaw.c \
-application/gimbal/sentry_control.c \
-application/chassis/chassis.c \
-application/shoot/shoot.c \
-application/cmd/robot_cmd.c \
-application/robot.c \
-application/robot_task.c
+ports/stm32f4/dwt_port.c \
+ports/stm32f4/pwm_port.c \
+ports/stm32f4/can_port.c \
+ports/stm32f4/usart_port.c \
+ports/stm32f4/usb_port.c \
+ports/stm32f4/log_port.c \
+ports/stm32f4/flash_port.c \
+ports/stm32f4/fault_port.c \
+ports/stm32f4/iwdg_port.c \
+ports/stm32f4/imu_port.c \
+ports/stm32f4/dg_test_hang.c \
+components/control/controller.c \
+components/control/kalman_filter.c \
+components/control/quaternion_ekf.c \
+components/crc/crc8.c \
+components/crc/crc16.c \
+components/math/user_lib.c \
+components/calib/calib.c \
+components/imu/bmi088_driver.c \
+components/imu/bmi088_middleware.c \
+components/imu/ins_task.c \
+components/ax650/ax650_pose.c \
+components/ax650/ax650_uart1.c \
+components/motor/dji/dji_motor.c \
+components/motor/ht/ht_motor.c \
+components/motor/dm/dm_motor.c \
+components/motor/servo/servo_motor.c \
+components/motor/core/motor_task.c \
+components/referee/protocol/referee_crc.c \
+components/referee/protocol/referee.c \
+components/referee/ui/referee_ui.c \
+components/referee/ui/referee_task.c \
+components/referee/ui/referee_app_status.c \
+components/referee/link/referee_custom.c \
+components/referee/link/referee_vt.c \
+components/referee/link/referee_vt_task.c \
+components/remote/remote_control.c \
+components/super_cap/super_cap.c \
+components/can_comm/can_comm.c \
+components/daemon/daemon.c \
+framework/diag/telemetry.c \
+ports/stm32f4/telemetry_arena.c \
+components/alarm/buzzer.c \
+apps/infantry/gimbal/gimbal.c \
+apps/infantry/gimbal/gimbal_recenter.c \
+apps/infantry/chassis/chassis.c \
+apps/infantry/chassis/chassis_kinematics.c \
+apps/infantry/chassis/chassis_spin.c \
+apps/infantry/chassis/chassis_power.c \
+apps/infantry/shoot/shoot.c \
+apps/infantry/shoot/heat_guard.c \
+apps/infantry/cmd/robot_cmd.c \
+apps/infantry/cmd/cmd_authority.c \
+apps/infantry/cmd/cmd_autoaim.c \
+apps/infantry/cmd/cmd_kbm.c \
+apps/infantry/cmd/cmd_remote.c \
+apps/common/app/app_shell.c \
+apps/infantry/app/assembly.c \
+framework/kernel/kernel_version.c \
+framework/err/err.c \
+framework/mem/mem.c \
+framework/msg/msg.c \
+framework/diag/diag.c \
+ports/freertos/kernel_freertos.c
 
 # ASM sources
 ASM_SOURCES =  \
@@ -212,11 +220,13 @@ MCU = $(CPU) -mthumb -mthumb-interwork $(FPU) $(FLOAT-ABI)
 AS_DEFS = 
 
 # C defines
+# 注意:与 CMakeLists 的 add_definitions 保持一致(check_build_parity.py 强制);
+# 历史上的 -DDISABLE_LOG_SYSTEM 在 LOG_INFO 改名后已失效,Debug 构建两套体系都开日志。
 C_DEFS =  \
 -DUSE_HAL_DRIVER \
 -DSTM32F407xx \
 -DARM_MATH_CM4 \
--DDISABLE_LOG_SYSTEM 
+-DESC_DEBUG
 
 # AS includes
 AS_INCLUDES =  \
@@ -238,46 +248,39 @@ C_INCLUDES =  \
 -IMiddlewares/ST/ARM/DSP/Include \
 -IMiddlewares/Third_Party/SEGGER/RTT \
 -IMiddlewares/Third_Party/SEGGER/Config \
--Iapplication/chassis \
--Iapplication/shoot \
--Iapplication/gimbal \
--Iapplication/cmd \
--Iapplication \
--Iconfig \
--Ibsp/dwt \
--Ibsp/can \
--Ibsp/usart \
--Ibsp/usb \
--Ibsp/gpio \
--Ibsp/spi \
--Ibsp/iic \
--Ibsp/log \
--Ibsp/flash \
--Ibsp/pwm \
--Ibsp \
--Imodules/algorithm \
--Imodules/bluetooth \
--Imodules/BMI088 \
--Imodules/imu \
--Imodules/ist8310 \
--Imodules/master_machine \
--Imodules/motor/DJImotor \
--Imodules/motor/LKmotor \
--Imodules/motor/HTmotor \
--Imodules/motor/step_motor \
--Imodules/motor/servo_motor \
--Imodules/motor/DMmotor \
--Imodules/motor \
--Imodules/oled \
--Imodules/referee \
--Imodules/remote \
--Imodules/super_cap \
--Imodules/can_comm \
--Imodules/message_center \
--Imodules/daemon \
--Imodules/telemetry \
--Imodules/alarm \
--Imodules  \
+-Iapps/common/app \
+-Iapps/infantry/app \
+-Iapps/infantry/chassis \
+-Iapps/infantry/shoot \
+-Iapps/infantry/gimbal \
+-Iapps/infantry/cmd \
+-Iconfig/infantry_2026 \
+-Iports/stm32f4 \
+-Icomponents/motor/core \
+-Icomponents/motor/dji \
+-Icomponents/motor/dm \
+-Icomponents/motor/ht \
+-Icomponents/motor/servo \
+-Icomponents/control \
+-Icomponents/crc \
+-Icomponents/math \
+-Icomponents/alarm \
+-Icomponents/imu \
+-Icomponents/ax650 \
+-Icomponents/referee/protocol \
+-Icomponents/referee/ui \
+-Icomponents/referee/link \
+-Icomponents/remote \
+-Icomponents/super_cap \
+-Icomponents/can_comm \
+-Icomponents/daemon \
+-Icomponents/calib \
+-Iframework \
+-Iframework/diag \
+-Iframework/err \
+-Iframework/kernel \
+-Iframework/mem \
+-Iframework/msg \
 -IMiddlewares/ST/ARM/DSP/Inc
 
 

@@ -1,0 +1,58 @@
+---
+# 命名规范机器约束(2026-11-23 工程统一化收官)
+# 规范正文:.Doc/spec/命名规范.md
+# 本文件不参与 ARM 构建;供 clang-tidy / IDE 在开发期检查。
+Checks: >
+  -readability-identifier-naming,
+  readability-identifier-naming.*
+HeaderFilterRegex: '(apps|components|framework|ports|config)/.*'
+
+CheckOptions:
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.ClassCase
+    value: lower_case
+  - key: readability-identifier-naming.StructCase
+    value: lower_case
+  - key: readability-identifier-naming.UnionCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumCase
+    value: lower_case
+  - key: readability-identifier-naming.TypedefCase
+    value: lower_case
+  - key: readability-identifier-naming.TypeAliasCase
+    value: lower_case
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.StaticConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberCase
+    value: lower_case
+  - key: readability-identifier-naming.IgnoreMainLikeFunctions
+    value: true
+  - key: readability-identifier-naming.IgnoreFailedSplit
+    value: true
+
+  # ---- ABI / 平台 / 第三方例外(与 tools/check_naming.py 白名单一致)----
+  - key: readability-identifier-naming.FunctionIgnoredRegexp
+    value: '^(HAL_|os|xTask|vTask|pvPort|uxTask|MX_|System|NVIC_|DMA_|SPI_|I2C_|TIM_|USART_|CAN_|GPIO_|RCC_|FLASH_|PWR_|ADC_|pcTask|vApplication|fw_assert_fail)'
+  - key: readability-identifier-naming.TypedefIgnoredRegexp
+    value: '^(HAL_|CAN_|UART_|IRQn_)'
+  - key: readability-identifier-naming.MacroDefinitionIgnoredRegexp
+    value: '^(HAL_|ARM_|STM32|USE_|MX_|CS1_|ADDR_FLASH_SECTOR_|__|ONE_BOARD|CHASSIS_BOARD|GIMBAL_BOARD)'
+  - key: readability-identifier-naming.VariableIgnoredRegexp
+    value: '^(rc|mouse)$'

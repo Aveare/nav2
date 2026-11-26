@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """注释重写安全闸门。
 
-验证"只改注释、不改代码"与"注释信息零丢失"。配套文档:.Doc/注释重写规划.md
+验证"只改注释、不改代码"与"注释信息零丢失"。配套文档:.Doc/spec/注释规范.md
 
 用法:
     python tests/verify_comments_only.py --snapshot   # 建立代码快照基线(改注释前执行)

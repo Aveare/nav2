@@ -5,5 +5,5 @@
  */
 #ifndef AX650_TEST_ROBOT_DEF_H
 #define AX650_TEST_ROBOT_DEF_H
-#include "robot_infantry_2026.h"
+#include "config.h"
 #endif

@@ -1,0 +1,35 @@
+# B1b 工程风格批(方案附E/N12,2026-11-22 用户批准"全做")
+# 基底 LLVM,嵌入式定制;目标 = 与现有主流风格(跃鹿系 4 空格/短块不合并)差异最小,
+# 格式化 diff 只含空格/换行,G11 等价闸门背书(nm/size 逐字节 + #include 集合空)。
+---
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++11
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+AccessModifierOffset: -4
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+BreakBeforeBraces: Allman
+BraceWrapping:
+  AfterFunction: true
+  AfterControlStatement: Never
+  AfterEnum: true
+  AfterStruct: true
+IndentCaseLabels: false
+PointerAlignment: Right
+AlignConsecutiveMacros: Consecutive
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: true
+SortIncludes: false          # include 顺序是语义敏感区(#if 依赖),永不重排
+IncludeBlocks: Preserve
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SpaceBeforeParens: ControlStatements
+PenaltyReturnTypeOnItsOwnLine: 60
+AlwaysBreakAfterReturnType: None

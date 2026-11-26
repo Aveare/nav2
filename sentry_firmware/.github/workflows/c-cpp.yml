@@ -1,0 +1,58 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: carlosperate/arm-none-eabi-gcc-action@v1
+      - run: arm-none-eabi-gcc --version
+
+      - uses: actions/checkout@v3
+      - name: make
+        run: make -j12
+
+      - uses: seanmiddleditch/gha-setup-ninja@master
+      - name: ninja
+        run: cmake -G Ninja -B build && ninja -C build
+
+      - name: release build
+        run: |
+          cmake -G Ninja -B build-release -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          ninja -C build-release
+          sha256sum build-release/basic_framework.elf
+          arm-none-eabi-size build-release/basic_framework.elf
+
+      # 2026-11-20 增加:主机测试与静态一致性检查(此前 CI 只验证两种编译能过)
+      # 2026-11-23 扩:四套主机测试 + 命名/宏/符号/段占用闸门
+      - name: host unit tests
+        run: |
+          pwsh -File tests/run_chassis_tests.ps1
+          pwsh -File tests/run_fwk_tests.ps1
+          pwsh -File tests/run_ax650_tests.ps1
+          pwsh -File tests/run_profile_tests.ps1
+
+      - name: naming & macro gates
+        run: |
+          python3 tools/check_naming.py
+          python3 tools/check_macros.py
+          python3 tools/check_macro_dups.py
+          python3 tools/check_macro_golden.py
+          python3 tools/check_abi_golden.py
+          python3 tools/check_comment_style.py
+          python3 tools/check_build_parity.py
+          python3 tools/check_symbol_contract.py
+          python3 tools/check_sections.py
+
+      - name: source list & doc links
+        run: |
+          python3 tools/check_source_lists.py
+          python3 tools/refactor_gate.py check-links
+      

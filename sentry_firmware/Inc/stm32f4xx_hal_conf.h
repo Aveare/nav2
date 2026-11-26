@@ -55,7 +55,7 @@
 /* #define HAL_HASH_MODULE_ENABLED */
 #define HAL_I2C_MODULE_ENABLED
 /* #define HAL_I2S_MODULE_ENABLED */
-/* #define HAL_IWDG_MODULE_ENABLED */
+/* #define HAL_IWDG_MODULE_ENABLED */ /* 工程 HAL 树已裁剪该驱动;IWDG 走寄存器级实现,见 bsp/iwdg */
 /* #define HAL_LTDC_MODULE_ENABLED */
 #define HAL_RNG_MODULE_ENABLED
 #define HAL_RTC_MODULE_ENABLED
