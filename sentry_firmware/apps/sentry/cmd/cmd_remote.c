@@ -5,7 +5,7 @@
  * @author  小猫大王
  * @note    左横杆=世界 yaw 目标增量,左纵杆=pitch 目标增量,右杆=底盘平移;
  *          小 yaw 不需要单独通道:gimbal 内部按"小 yaw 先吃误差"自动分配。
- * @note    左中挡=AX650 自瞄;右挡选择底盘模式;左上/右上是急停(stop)挡。
+ * @note    AX650 关闭时左中挡退化为普通遥控;右中挡底盘不跟随大 yaw;左上/右上是急停挡。
  */
 #include "robot_def.h"
 #include "robot_cmd.h"
@@ -22,9 +22,10 @@
 
 void cmd_remote_set(void)
 {
-    const uint8_t auto_aim = REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left);
+    const uint8_t auto_aim =
+        AX650_USB_ENABLE && REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left);
 
-    /* 底盘模式:右挡决定 */
+    /* 右中挡让底盘平移与大 yaw 解耦;右下挡保留小陀螺(DEV-20261126-04) */
     if (REMOTE_RC_SWITCH_IS_DOWN(rc_data[RC_SLOT_CURRENT].rc.switch_right))
     {
         chassis_cmd.chassis_mode = CHASSIS_ROTATE;
@@ -32,7 +33,7 @@ void cmd_remote_set(void)
     }
     else if (REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_right))
     {
-        chassis_cmd.chassis_mode = auto_aim ? CHASSIS_NO_FOLLOW : CHASSIS_FOLLOW_GIMBAL_YAW;
+        chassis_cmd.chassis_mode = CHASSIS_NO_FOLLOW;
         gimbal_cmd.mode = GIMBAL_GYRO_MODE;
     }
 

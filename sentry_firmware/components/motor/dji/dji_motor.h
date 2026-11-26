@@ -55,6 +55,11 @@ typedef struct
     daemon_t *daemon;
     uint32_t feed_cnt;
     float dt;
+    /* 功率限幅接口(DEV-20261126-12):output_scale 乘到电流指令,默认 1.0=不限;
+     * 只有底盘功率控制会写它。current_cmd 是乘之前的电流指令快照,供功率模型预测
+     * (比低通后的 real_current 少约 10ms 滞后)。 */
+    float output_scale;
+    float current_cmd;
     volatile uint8_t feedback_received; // 首次反馈标志(会溢出的 DWT 计数不能作在线判据)
 } dji_motor_t;
 

@@ -16,7 +16,7 @@
 - 小电脑上 `cod_bringup`、`small_point_lio`、`cod_nuc_bringup` 编译成功。
 - `cod_nuc_bringup` 的 24 项 ROS 2 测试通过；包含坐标、硬件 launch、时间戳、RMCV 和 USB 伪终端收发。
 - 电控通信主机测试在 GCC `-O0` 和 `-Ofast -flto` 下通过，`NV`、`0x0503`、`0x1021` 的 C/Python 协议字节一致。
-- STM32F407 ARM Debug 全量编译与链接通过：FLASH 11.44%、RAM 56.34%、CCMRAM 83.84%。
+- STM32F407 ARM Debug 全量编译与链接通过（已优先合入上游 `youyucat/RM-JIT-CR@6e63abe` 哨兵实机修复 `DEV-20261126-01..11`，含 `SENTRY_BIG_YAW_OUTPUT_ENABLE=0`、`SENTRY_BIG_YAW_ZERO_RAD=1.436828f`、`SENTRY_SMALL_YAW_ENABLE=0`、取消解锁回中与 USART1 VOFA，并保留 `NV v1` 导航、`SENTRY_AUTONOMY_ENABLE=0` 硬清零与共享 CDC 自瞄）：FLASH 11.55%、RAM 56.35%、CCMRAM 83.84%。
 - 独立域 43 的三点 loopback 导航通过，终点误差约 0.147 m，速度输出未超过首测限值。
 - 实车参数已同步并安装到小电脑；这不表示已经完成实车运行验证。
 

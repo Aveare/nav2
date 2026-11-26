@@ -242,51 +242,150 @@ static void __attribute__((unused)) RobotModeTest(referee_interactive_info_t *_I
     }
 }
 
-/* 静态图元周期重发(DEV-20261125-02):裁判客户端重启/切视角/重进比赛会清空本地 UI,
- * 机器人无法感知,初始化时只画一次的标签与准星线就永久消失(圆环因为随自瞄状态
- * 重画而幸存)。这里每 300ms 重发 1 个静态图元,8 步约 2.4s 轮完一圈。
- * 不能整批重发:referee_send 每帧固定 34ms 延时,19 帧会阻塞 UI 任务约 646ms。 */
-#define REFEREE_UI_REPLAY_PERIOD_MS 300.0f
+/* 全量重绘(DEV-20261125-06):裁判客户端重启/切视角/重进比赛会清空本地 UI,
+ * 机器人无法感知。只重发静态图元不够 —— 动态值走 Change 操作,客户端没有对应
+ * 图元时 Change 无效,表现为"标签在、值和圆环不在"。这里全部改用 ADD 重绘:
+ * 每 150ms 重绘 1 个,16 步约 2.4s 轮完一圈,客户端无论何时接入都能自己长回来。
+ * 不能整批:referee_send 每帧固定 34ms 延时,16 帧会阻塞 UI 任务约 540ms。 */
+#define REFEREE_UI_REDRAW_PERIOD_MS 150.0f
+#define REFEREE_UI_REDRAW_STEPS 16u
 
-static void referee_ui_replay_static(void)
+static void referee_ui_redraw_item(uint8_t idx)
 {
-    static float last_ms;
-    static uint8_t step;
-    const float now = dwt_get_timeline_ms();
-    if (now - last_ms < REFEREE_UI_REPLAY_PERIOD_MS)
-        return;
-    last_ms = now;
+    referee_app_status_t app = {0};
+    const bool has_app = referee_app_status_get(&app);
+    char ui_text[24];
 
-    switch (step)
+    float lim = has_app ? app.heat_limit : 0.0f;
+    float q = has_app ? app.heat : 0.0f;
+    if (lim < 1.0f)
+        lim = 230.0f; // 与刷新路径一致:裁判未上线时按满量程画
+    int qi = (int)(q + 0.5f);
+    if (qi < 0)
+        qi = 0;
+    if ((float)qi > lim)
+        qi = (int)lim;
+    const uint32_t fill_w = (uint32_t)(494.0f * ((float)qi / lim));
+
+    switch (idx)
     {
     case 0:
     case 1:
     case 2:
     case 3:
     case 4:
-        referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_state_static[step]);
+        /* 静态标签:结构体里本来就是 ADD,直接重发 */
+        referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_state_static[idx]);
         break;
+
     case 5:
         referee_ui_graph_refresh(&referee_recv_info->referee_id, 5, referee_ui_shoot_line[0],
                      referee_ui_shoot_line[1], referee_ui_shoot_line[2], referee_ui_shoot_line[3],
                      referee_ui_shoot_line[4]);
         break;
+
     case 6:
+        /* 圆环:按当前自瞄状态重画并 ADD 覆盖(客户端对 Change 的 color 不敏感) */
+        referee_ui_circle_draw(&referee_ui_aim_circle, "ac0", UI_Graph_ADD, 9,
+                    (app.auto_aim != 0u) ? UI_Color_Green : UI_Color_White, 6, 960, 540, 120);
+        referee_ui_graph_refresh(&referee_recv_info->referee_id, 1, referee_ui_aim_circle);
+        break;
+
+    case 7:
         referee_ui_graph_refresh(&referee_recv_info->referee_id, 1, referee_ui_heat_bar[0]);
         break;
-    default:
-        /* 热量档位文字是静态的,和 HEAT 标签一起补发 */
+
+    case 8:
         referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_heat_text[1]);
+        break;
+
+    case 9: // 小陀螺(Q 开关,C 切匀速/变速)
+    {
+        const char *t = (app.spin_mode == REFEREE_SPIN_VARY)  ? "VARY [Q/C]"
+                        : (app.spin_mode == REFEREE_SPIN_CONST) ? "CONST [Q/C]"
+                                                                : "OFF [Q]";
+        const uint32_t color = (app.spin_mode == REFEREE_SPIN_OFF) ? UI_Color_White : UI_Color_Green;
+        referee_ui_status_text(ui_text, t);
+        referee_ui_char_draw(&referee_ui_state_dynamic[0], "sd0", UI_Graph_ADD, 8, color, 15, 2,
+                    240, 750, "%s", ui_text);
+        referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_state_dynamic[0]);
         break;
     }
 
-    step = (uint8_t)((step + 1u) % 8u);
+    case 10: // 摩擦轮
+        referee_ui_status_text(ui_text, app.friction_on ? "ON [RMB]" : "OFF [RMB]");
+        referee_ui_char_draw(&referee_ui_state_dynamic[1], "sd1", UI_Graph_ADD, 8,
+                    app.friction_on ? UI_Color_Green : UI_Color_White, 15, 2, 240, 700, "%s", ui_text);
+        referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_state_dynamic[1]);
+        break;
+
+    case 11: // 拨弹盘
+        referee_ui_status_text(ui_text, app.loader_on ? "ON" : "OFF");
+        referee_ui_char_draw(&referee_ui_state_dynamic[2], "sd2", UI_Graph_ADD, 8,
+                    app.loader_on ? UI_Color_Green : UI_Color_White, 15, 2, 240, 650, "%s", ui_text);
+        referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_state_dynamic[2]);
+        break;
+
+    case 12: // 发射档
+    {
+        const char *t = (app.load_mode == REFEREE_LOAD_AUTO)    ? "AUTO [R/E][LMB]"
+                        : (app.load_mode == REFEREE_LOAD_BURST3) ? "BURST3 [E][LMB]"
+                        : (app.load_mode == REFEREE_LOAD_SINGLE) ? "SINGLE [R][LMB]"
+                                                                 : "OFF [R][LMB]";
+        const uint32_t color = (app.load_mode == REFEREE_LOAD_AUTO) ? UI_Color_Cyan : UI_Color_Green;
+        referee_ui_status_text(ui_text, t);
+        referee_ui_char_draw(&referee_ui_state_dynamic[3], "sd3", UI_Graph_ADD, 8, color, 15, 2,
+                    240, 600, "%s", ui_text);
+        referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_state_dynamic[3]);
+        break;
+    }
+
+    case 13: // 射速档
+    {
+        const char *t = (app.fire_tier == 0)   ? "ECO 1.4/s [X]"
+                        : (app.fire_tier == 2) ? "BURST 12.0/s [X]"
+                                               : "NORMAL 6.0/s [X]";
+        const uint32_t color = (app.fire_tier == 0)   ? UI_Color_Green
+                               : (app.fire_tier == 2) ? UI_Color_Yellow
+                                                      : UI_Color_White;
+        referee_ui_status_text(ui_text, t);
+        referee_ui_char_draw(&referee_ui_state_dynamic[4], "sd4", UI_Graph_ADD, 8, color, 15, 2,
+                    240, 550, "%s", ui_text);
+        referee_ui_char_refresh(&referee_recv_info->referee_id, referee_ui_state_dynamic[4]);
+        break;
+    }
+
+    case 14: // 热量数字
+        referee_ui_float_draw(&referee_ui_heat_number, "hx2", UI_Graph_ADD, 8, UI_Color_Green, 15, 2, 2,
+                    700, 505, qi);
+        referee_ui_graph_refresh(&referee_recv_info->referee_id, 1, referee_ui_heat_number);
+        break;
+
+    default: // 热量条填充
+        referee_ui_line_draw(&referee_ui_heat_bar[1], "hb1", UI_Graph_ADD, 8, UI_Color_Green, 30,
+                    156, 475, 156 + fill_w, 475);
+        referee_ui_graph_refresh(&referee_recv_info->referee_id, 1, referee_ui_heat_bar[1]);
+        break;
+    }
+}
+
+static void referee_ui_redraw_tick(void)
+{
+    static float last_ms;
+    static uint8_t step;
+    const float now = dwt_get_timeline_ms();
+    if (now - last_ms < REFEREE_UI_REDRAW_PERIOD_MS)
+        return;
+    last_ms = now;
+
+    referee_ui_redraw_item(step);
+    step = (uint8_t)((step + 1u) % REFEREE_UI_REDRAW_STEPS);
 }
 
 static void referee_my_ui_refresh(referee_info_t *referee_recv_info,
                         referee_interactive_info_t *_Interactive_data)
 {
-    referee_ui_replay_static();
+    referee_ui_redraw_tick();
     referee_ui_change_check(_Interactive_data);
     // chassis
     if (_Interactive_data->Referee_Interactive_Flag.chassis_flag == 1)
@@ -470,8 +569,8 @@ static void referee_my_ui_refresh(referee_info_t *referee_recv_info,
                 if (spin != last_spin)
                 {
                     last_spin = spin;
-                    const char *t = (spin == REFEREE_SPIN_VARY)  ? "VARY [Q]"
-                                    : (spin == REFEREE_SPIN_CONST) ? "CONST [Q]"
+                    const char *t = (spin == REFEREE_SPIN_VARY)  ? "VARY [Q/C]"
+                                    : (spin == REFEREE_SPIN_CONST) ? "CONST [Q/C]"
                                                                    : "OFF [Q]";
                     const uint32_t color = (spin == REFEREE_SPIN_OFF) ? UI_Color_White : UI_Color_Green;
                     referee_ui_status_text(ui_text, t);

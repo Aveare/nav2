@@ -1,14 +1,16 @@
 /**
  * @file    gimbal.c
- * @brief   哨兵三轴云台:世界目标分配、大 yaw/pitch 达妙力矩环、小 yaw GM6020 相对角环
+ * @brief   哨兵三轴云台:世界目标分配、大 yaw/pitch 力矩环与小 yaw 可选控制
  * @layer   APP
  * @author  小猫大王
- * @note    **控制分配(核心)**:
+ * @note    **控制分配(小 yaw 使能时)**:
  *            世界目标 T,大 yaw 世界角 W_big,小 yaw 机械相对角 s,IMU 世界 yaw A.
  *            s_target = clamp(wrap180(T - W_big), ±small_limit);
  *            big_target = T - s_target;
  *          即小 yaw 先吃掉它能吃掉的误差,大 yaw 只承担小 yaw 饱和后的剩余部分。
  *          这样小幅瞄准只动小 yaw(快、轻),大角度转火才动大 yaw(慢、大力矩)。
+ *          当前 `SENTRY_SMALL_YAW_ENABLE=0`:小 yaw 限幅强制为 0 且电机保持停止,
+ *          世界 yaw 目标全部交给大 yaw;GM6020 只保留编码器反馈与 VOFA 输出。
  * @note    IMU 安装位置由 SENTRY_IMU_AFTER_SMALL_YAW 选择:
  *          1 = IMU 在枪体上,A = W_big + s;0 = IMU 在大 yaw 上,A = W_big。
  * @note    大 yaw/pitch 用 DM MIT 模式但 Kp=Kd=0,只下发力矩;
@@ -28,6 +30,12 @@
 #include "general_def.h"
 #include "dwt_port.h"
 #include "log_port.h"
+#if GIMBAL_VOFA_UART1_ENABLE
+#include "fault_port.h"
+#include "usart_port.h"
+#include "usart.h"
+#include <string.h>
+#endif
 #include <math.h>
 
 /* ---------------- 模块状态 ---------------- */
@@ -51,11 +59,14 @@ static cmd_watchdog_t gimbal_cmd_wd;
 static float gimbal_last_ms;
 static float big_yaw_torque_nm;
 static float pitch_torque_nm;
+#if GIMBAL_VOFA_UART1_ENABLE
+static usart_t *gimbal_vofa_usart;
+#endif
 
 /* 台架标定开关:写 1 → 大 yaw 三角波慢扫(仅零力态生效),扫完自动清 0。
  * 由 EmberProbe 变量写入触发,不参与正常运行。 */
 volatile uint8_t gimbal_cal_sweep = 0u;
-/* 台架动作测试:1=大 yaw 匀速旋转(模拟雷达扫描),2=小 yaw 正弦往返扫掠。
+/* 台架动作测试:1=大 yaw 匀速旋转(模拟雷达扫描),2=小 yaw 正弦往返扫掠(需使能)。
  * 写非 0 即接管云台目标,pitch 断电保持,动作结束自动清 0。 */
 volatile uint8_t gimbal_test_mode = 0u;
 
@@ -104,23 +115,6 @@ static float gimbal_pitch_joint_deg(void)
     return joint_rad * FW_RAD_TO_DEG;
 }
 
-#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
-/**
- * @brief 使能大 yaw 的 DM 反馈，同时强制 MIT 控制量为零
- * @note 安全:反馈-only 模式不得给位置、速度或力矩控制量。
- */
-static void gimbal_enable_big_yaw_feedback_only(void)
-{
-    if (big_yaw_motor == NULL)
-        return;
-    dm_motor_enable(big_yaw_motor);
-    dm_motor_set_mit_angle(big_yaw_motor, 0.0f);
-    dm_motor_set_mit_speed(big_yaw_motor, 0.0f);
-    dm_motor_set_mit_torque(big_yaw_motor, 0.0f);
-    big_yaw_torque_nm = 0.0f;
-}
-#endif
-
 /* 世界 yaw(W_big)与角速度:按 IMU 安装位置扣除小 yaw 分量 */
 static void gimbal_big_yaw_world(float *world_deg, float *world_rate_deg_s, float imu_yaw_deg,
                                  float imu_yaw_rate_deg_s, float small_rel_deg, float small_rate_deg_s)
@@ -153,13 +147,7 @@ void gimbal_init(void)
     };
     big_yaw_motor = dm_motor_mit_init(&big_yaw_config);
     if (big_yaw_motor != NULL)
-    {
-#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
-        gimbal_enable_big_yaw_feedback_only();
-#else
         dm_motor_stop(big_yaw_motor);
-#endif
-    }
 
     /* pitch:DM-J4310,CAN2,控制 ID 5 / Master 0,MIT 力矩 */
     dm_motor_mit_init_config_t pitch_config = {
@@ -272,6 +260,17 @@ void gimbal_init(void)
 
     gimbal_cmd_recv.mode = GIMBAL_ZERO_FORCE;
     gimbal_last_ms = 0.0f;
+
+#if GIMBAL_VOFA_UART1_ENABLE
+    /* USART1 独占给 VOFA,沿用 CubeMX 的 921600 8N1;这里只做 Init 阶段句柄注入。 */
+    usart_init_config_t gimbal_vofa_config = {
+        .recv_buff_size = 1u,
+        .usart_handle = &huart1, // REDFLAG-EXEMPT: Init 句柄注入(AGENTS.md 允许口径)
+        .module_callback = 0,
+        .tx_only = 1u,
+    };
+    gimbal_vofa_usart = usart_register(&gimbal_vofa_config);
+#endif
 }
 
 /**
@@ -280,13 +279,7 @@ void gimbal_init(void)
 static void gimbal_apply_zero_force(void)
 {
     if (big_yaw_motor != NULL)
-    {
-#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
-        gimbal_enable_big_yaw_feedback_only();
-#else
         dm_motor_stop(big_yaw_motor);
-#endif
-    }
     if (pitch_motor != NULL)
         dm_motor_stop(pitch_motor);
     if (small_yaw_motor != NULL)
@@ -307,12 +300,6 @@ static void gimbal_apply_zero_force(void)
  * 只在零力态被调用,±20°、5°/s、1.5 N·m 限幅,超范围/超时自动中止。 */
 static void gimbal_cal_sweep_step(float now_ms, float imu_yaw_deg)
 {
-#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
-    (void)now_ms;
-    (void)imu_yaw_deg;
-    gimbal_cal_sweep = 0u;
-    gimbal_enable_big_yaw_feedback_only();
-#else
     static float t_start = -1.0f;
     static float pos_start = 0.0f;
     static float imu_start = 0.0f;
@@ -386,7 +373,6 @@ static void gimbal_cal_sweep_step(float now_ms, float imu_yaw_deg)
                  (int)(target * 1000.0f), (int)(imu_yaw_deg * 100.0f),
                  (int)(big_yaw_motor->measure.velocity * 1000.0f));
     }
-#endif
 }
 
 void gimbal_task(void)
@@ -431,11 +417,10 @@ void gimbal_task(void)
     }
     else
     {
-        /* 3. 世界目标分配:粗精分离。小 yaw 只吃 ±FINE_DEG 的精细误差,
-         *    其余全部交给大 yaw。与旧实现(小 yaw 吃满 ±125°)相比,小 yaw 始终居中、
-         *    余量充足,大 yaw 才真正承担主跟踪。 */
+        /* 3. 世界目标分配:小 yaw 关闭时限幅为 0,世界目标全部交给大 yaw;
+         *    使能后恢复粗精分离,小 yaw 只吃 ±FINE_DEG 的精细误差。 */
         float target_world = gimbal_cmd_recv.big_yaw;
-        float small_limit = SENTRY_SMALL_YAW_FINE_DEG;
+        float small_limit = SENTRY_SMALL_YAW_ENABLE ? SENTRY_SMALL_YAW_FINE_DEG : 0.0f;
 
         /* 台架动作测试:接管目标,便于验证扫描/限位/同步带。
          * 模式 1/2 pitch 保持断电;模式 3 单独驱动 pitch 做行程演示。 */
@@ -533,17 +518,26 @@ void gimbal_task(void)
             }
             else if (gimbal_test_mode == 2u) /* 小 yaw ±125° 正弦,0.1 Hz,10 s */
             {
-                const float amp = SENTRY_SMALL_YAW_LIMIT_DEG - SENTRY_SMALL_YAW_LIMIT_MARGIN_DEG;
-                /* 前 2 s 从"当前小 yaw 角"平滑过渡到正弦,避免起步瞬间被拽到中位 */
-                const float blend = (test_el < 2.0f) ? (test_el * 0.5f) : 1.0f;
-                const float sine = amp * sinf(6.2831853f * 0.1f * test_el);
-                target_world = big_yaw_world_deg + (1.0f - blend) * small_rel_deg + blend * sine;
-                small_limit = amp;
-                if (test_el > 10.0f)
+                if (!SENTRY_SMALL_YAW_ENABLE)
                 {
                     gimbal_test_mode = 0u;
                     test_ms = -1.0f;
-                    LOG_INFO("[test] done");
+                    LOG_INFO("[test] small yaw disabled");
+                }
+                else
+                {
+                    const float amp = SENTRY_SMALL_YAW_LIMIT_DEG - SENTRY_SMALL_YAW_LIMIT_MARGIN_DEG;
+                    /* 前 2 s 从"当前小 yaw 角"平滑过渡到正弦,避免起步瞬间被拽到中位 */
+                    const float blend = (test_el < 2.0f) ? (test_el * 0.5f) : 1.0f;
+                    const float sine = amp * sinf(6.2831853f * 0.1f * test_el);
+                    target_world = big_yaw_world_deg + (1.0f - blend) * small_rel_deg + blend * sine;
+                    small_limit = amp;
+                    if (test_el > 10.0f)
+                    {
+                        gimbal_test_mode = 0u;
+                        test_ms = -1.0f;
+                        LOG_INFO("[test] done");
+                    }
                 }
             }
         }
@@ -551,39 +545,43 @@ void gimbal_task(void)
         float big_target_world;
         sentry_gimbal_allocate(target_world, big_yaw_world_deg, small_limit, &small_target,
                                &big_target_world);
-        /* 4. 大 yaw 角度环 → 速度环 → 力矩 */
+        const float big_err = sentry_gimbal_wrap180(big_target_world - big_yaw_world_deg);
+
+        /* 4. 大 yaw:输出关闭时固定零力矩,保留实例反馈供 VOFA/故障排查 */
         if (big_yaw_motor != NULL)
         {
-#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
-            (void)big_target_world;
-            gimbal_enable_big_yaw_feedback_only();
-            pid_clear(&big_yaw_angle_pid);
-            pid_clear(&big_yaw_speed_pid);
-#else
-            const float big_err = sentry_gimbal_wrap180(big_target_world - big_yaw_world_deg);
-            dm_motor_enable(big_yaw_motor);
-            if (gimbal_dm_online(big_yaw_motor))
+            if (!SENTRY_BIG_YAW_OUTPUT_ENABLE)
             {
-                float big_speed_ref =
-                    pid_calculate(&big_yaw_angle_pid, big_yaw_world_deg,
-                                  big_yaw_world_deg + big_err);
-                float torque = pid_calculate(&big_yaw_speed_pid, big_yaw_world_rate_deg_s,
-                                             big_speed_ref);
-                MOTOR_LIMIT_MIN_MAX(torque, -SENTRY_BIG_YAW_MAX_TORQUE_NM,
-                                    SENTRY_BIG_YAW_MAX_TORQUE_NM);
-                big_yaw_torque_nm = torque;
-                dm_motor_set_mit_torque(big_yaw_motor,
-                                        torque * SENTRY_BIG_YAW_DIRECTION /
-                                            SENTRY_BIG_YAW_TRANSMISSION_RATIO);
-            }
-            else
-            {
+                dm_motor_stop(big_yaw_motor);
                 big_yaw_torque_nm = 0.0f;
-                dm_motor_set_mit_torque(big_yaw_motor, 0.0f);
                 pid_clear(&big_yaw_angle_pid);
                 pid_clear(&big_yaw_speed_pid);
             }
-#endif
+            else
+            {
+                dm_motor_enable(big_yaw_motor);
+                if (gimbal_dm_online(big_yaw_motor))
+                {
+                    float big_speed_ref =
+                        pid_calculate(&big_yaw_angle_pid, big_yaw_world_deg,
+                                      big_yaw_world_deg + big_err);
+                    float torque = pid_calculate(&big_yaw_speed_pid, big_yaw_world_rate_deg_s,
+                                                 big_speed_ref);
+                    MOTOR_LIMIT_MIN_MAX(torque, -SENTRY_BIG_YAW_MAX_TORQUE_NM,
+                                        SENTRY_BIG_YAW_MAX_TORQUE_NM);
+                    big_yaw_torque_nm = torque;
+                    dm_motor_set_mit_torque(big_yaw_motor,
+                                            torque * SENTRY_BIG_YAW_DIRECTION /
+                                                SENTRY_BIG_YAW_TRANSMISSION_RATIO);
+                }
+                else
+                {
+                    big_yaw_torque_nm = 0.0f;
+                    dm_motor_set_mit_torque(big_yaw_motor, 0.0f);
+                    pid_clear(&big_yaw_angle_pid);
+                    pid_clear(&big_yaw_speed_pid);
+                }
+            }
         }
 
         /* 5. pitch 角度环 → 速度环 → 力矩 + 重力前馈(模式 1/2 断电,模式 3 用测试目标) */
@@ -644,18 +642,23 @@ void gimbal_task(void)
             }
         }
 
-        /* 6. 小 yaw 相对角目标(最近圈展开) */
+        /* 6. 小 yaw 关闭时持续零输出;使能时才跟踪相对角目标 */
         if (small_yaw_motor != NULL)
         {
-            dji_motor_enable(small_yaw_motor);
-            float raw_target = gimbal_small_yaw_zero_deg() +
-                               SENTRY_SMALL_YAW_DIRECTION * small_target;
-            float current = small_yaw_motor->measure.total_angle;
-            while (raw_target - current > 180.0f)
-                raw_target -= 360.0f;
-            while (raw_target - current < -180.0f)
-                raw_target += 360.0f;
-            dji_motor_set_ref(small_yaw_motor, raw_target);
+            if (!SENTRY_SMALL_YAW_ENABLE)
+                dji_motor_stop(small_yaw_motor);
+            else
+            {
+                dji_motor_enable(small_yaw_motor);
+                float raw_target = gimbal_small_yaw_zero_deg() +
+                                   SENTRY_SMALL_YAW_DIRECTION * small_target;
+                float current = small_yaw_motor->measure.total_angle;
+                while (raw_target - current > 180.0f)
+                    raw_target -= 360.0f;
+                while (raw_target - current < -180.0f)
+                    raw_target += 360.0f;
+                dji_motor_set_ref(small_yaw_motor, raw_target);
+            }
         }
     }
 
@@ -674,6 +677,38 @@ void gimbal_task(void)
     gimbal_fb.big_yaw_state = (big_yaw_motor != NULL) ? big_yaw_motor->measure.state : 0u;
     gimbal_fb.big_yaw_online = gimbal_dm_online(big_yaw_motor);
     msg_publish(gimbal_pub, (void *)&gimbal_fb);
+
+#if GIMBAL_VOFA_UART1_ENABLE
+    /* VOFA JustFloat 三通道:
+     * 0 大 yaw DM 多圈位置 rad;1 小 yaw GM6020 单圈编码器 0~8191;
+     * 2 pitch DM 多圈位置 rad。帧尾 00 00 80 7F 是协议定界符。 */
+    enum
+    {
+        GIMBAL_VOFA_CHANNEL_COUNT = 3,
+        GIMBAL_VOFA_FRAME_SIZE = (GIMBAL_VOFA_CHANNEL_COUNT + 1) * sizeof(float)
+    };
+    static uint8_t gimbal_vofa_frame[GIMBAL_VOFA_FRAME_SIZE];
+    static uint8_t gimbal_vofa_divider;
+    if (!fault_hold_active() && ++gimbal_vofa_divider >= GIMBAL_VOFA_SEND_DIVIDER)
+    {
+        gimbal_vofa_divider = 0u;
+        if (usart_is_ready(gimbal_vofa_usart))
+        {
+            const float channels[GIMBAL_VOFA_CHANNEL_COUNT] = {
+                (big_yaw_motor != NULL) ? big_yaw_motor->measure.total_position : 0.0f,
+                (small_yaw_motor != NULL) ? (float)small_yaw_motor->measure.ecd : 0.0f,
+                (pitch_motor != NULL) ? pitch_motor->measure.total_position : 0.0f,
+            };
+            memcpy(gimbal_vofa_frame, channels, sizeof(channels));
+            gimbal_vofa_frame[sizeof(channels) + 0u] = 0x00u;
+            gimbal_vofa_frame[sizeof(channels) + 1u] = 0x00u;
+            gimbal_vofa_frame[sizeof(channels) + 2u] = 0x80u;
+            gimbal_vofa_frame[sizeof(channels) + 3u] = 0x7Fu;
+            (void)usart_try_send_it(gimbal_vofa_usart, gimbal_vofa_frame,
+                                    sizeof(gimbal_vofa_frame));
+        }
+    }
+#endif
 
     /* 8. 标定观测(阶段0):零力时 5 Hz 打印三轴原始反馈,供手转测同步带比/零位/虚位。
      *    整数缩放打印(rad→mrad, deg→cdeg),避免浮点占位符;只在零力状态输出,不影响控制。 */

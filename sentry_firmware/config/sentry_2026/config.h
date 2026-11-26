@@ -27,21 +27,27 @@
 /* ---------------- 跨域一致性守卫 ----------------
  * 子头只定义自己域内的值;需要读两个域的检查集中在这里,避免子头互相 include。 */
 
-/* USART1 只有一个使用者:AX650 自瞄链路与底盘 VOFA 调试互斥。 */
-#if defined(CHASSIS_VOFA_UART1_ENABLE) && CHASSIS_VOFA_UART1_ENABLE && AX650_UART1_ENABLE
+/* USART1 只有一个使用者:哨兵云台 VOFA、底盘 VOFA 与旧 AX650 链路互斥。 */
+#if GIMBAL_VOFA_UART1_ENABLE && CHASSIS_VOFA_UART1_ENABLE
+#error "UART1 owner conflict: gimbal VOFA and chassis VOFA must be mutually exclusive"
+#endif
+#if AX650_UART1_ENABLE && (GIMBAL_VOFA_UART1_ENABLE || CHASSIS_VOFA_UART1_ENABLE)
 #error "UART1 owner conflict: AX650 and debug VOFA must be mutually exclusive"
 #endif
 
+/* 下行接收不能脱离链路总开关。 */
 #if AX650_USB_ENABLE && AX650_UART1_ENABLE
 #error "AX650 USB CDC and USART1 transports must be mutually exclusive"
 #endif
 
-/* 下行接收不能脱离链路总开关。 */
 #if AX650_UART1_RX_ENABLE && !AX650_UART1_ENABLE
 #error "AX650_UART1_RX_ENABLE=1 需要先开启 AX650_UART1_ENABLE"
 #endif
 
 /* 小 yaw 电流模式与电压模式的输出限幅必须匹配协议满量程。 */
+#if (SENTRY_SMALL_YAW_ENABLE != 0) && (SENTRY_SMALL_YAW_ENABLE != 1)
+#error "SENTRY_SMALL_YAW_ENABLE 只能为 0 或 1"
+#endif
 #if SENTRY_SMALL_YAW_CURRENT_MODE && (SENTRY_SMALL_YAW_SPEED_MAXOUT > 16384)
 #error "小 yaw 电流模式输出限幅不得超过 16384(0x1FE/0x2FE 协议满量程)"
 #endif

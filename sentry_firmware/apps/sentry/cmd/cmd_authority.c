@@ -83,7 +83,7 @@ void cmd_authority_arbitrate(void)
     if (authority_source != AUTH_RUN)
         cmd_apply_safe_outputs();
 
-    // 5. 解锁:右上 + 左中 + 全回中;解锁沿重锚定世界 yaw / pitch
+    // 5. 解锁:右上 + 左中 + 全回中;解锁沿只重锚定世界 yaw / pitch
     if (remote_control_is_online() && REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right) &&
         REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left) &&
         MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.dial) <= PROTECT_AUTH_NEUTRAL_DEADBAND &&
@@ -98,10 +98,7 @@ void cmd_authority_arbitrate(void)
         /* pitch 上电不回中:只把目标重锚定到当前关节角,避免解锁瞬间大幅动作。
          * (2026-11-23 教训:上电回水平在连杆未确认行程/符号时会把机构顶断) */
         gimbal_cmd.pitch = gimbal_fb_recv.pitch_deg;
-#if SENTRY_GIMBAL_RECENTER_ENABLE
-        yaw_recentering = 1;
-        recenter_cnt = 0;
-#endif
+        /* 解锁不请求底盘回中,右拨杆切到中挡后直接自由平移(DEV-20261126-05) */
         LOG_INFO("[CMD] reinstate, robot ready");
     }
 }

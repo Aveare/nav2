@@ -25,14 +25,18 @@
 原始许可证或快照。`SOURCE_MANIFEST.json` 记录复制前的文件哈希，`LOCAL_CHANGES.json`
 记录本次本地修改。历史 `RM_DEVLOG.md` 保留，当前条目为 DEV-20261125-LOCAL-NAV。
 
+## 上游同步基线（2026-11-26）
+
+- 已优先合并上游 `youyucat/RM-JIT-CR@6e63abe` 中的哨兵实机修复（`DEV-20261126-01..11`）及公共层更新，并在其上保留本轮导航 `NV v1` 与共享 CDC 自瞄代码（详见 `RM_DEVLOG.md` 中的 `DEV-20261126-MERGE-UPSTREAM`）：
+  - `SENTRY_BIG_YAW_OUTPUT_ENABLE=0`（大 yaw 带载触发 `0xC` 过温后的软件零力矩保护，保留 CAN 编码器角度与采样时间回传）；
+  - `SENTRY_BIG_YAW_ZERO_RAD=1.436828f`（实测大 yaw 机械中心零位）；
+  - `SENTRY_SMALL_YAW_ENABLE=0`、右中挡 `CHASSIS_NO_FOLLOW`、取消解锁自动回中；
+  - `GIMBAL_VOFA_UART1_ENABLE=1`（USART1 三轴编码器 VOFA，旧 USART1 AX650 关闭，自瞄与导航共用 USB CDC）。
+- 本地 Windows 构建：`.\build.ps1 sentry -Current` 同时输出 `build_sentry/sentry.elf`、`firmware/sentry.elf` 与 `firmware/current.elf`（不要在小电脑编译，烧录由本地人工完成）。
+
 ## 默认只联调通信
 
-`SENTRY_AUTONOMY_ENABLE=0`：USB 以 50 Hz 持续回传新鲜的大 yaw CAN 角度，
-但 `autonomy_get_command()` 会把已解析的导航速度整帧清零并返回无效，导航命令
-不能进入底盘 PID。若大 yaw CAN 反馈停止，固件不会用旧角度伪造新采样时间。
-`SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=0` 已恢复原大 yaw 角度环和速度环参数。
-这不改变 `SENTRY_AUTONOMY_ENABLE=0` 的底盘导航禁用状态；大 yaw PID 只在原云台
-安全仲裁允许、命令未断流且电机在线时输出。
+`SENTRY_AUTONOMY_ENABLE=0`：USB 可收发，导航不能接管底盘。
 ROS 桥接 `enable_drive=false`：继续回传角度与测时，速度命令标记为无效。
 通信联调不需要解除这两个开关。原电控的手动功能不是被这两个开关禁用的。
 

@@ -13,17 +13,6 @@
 本地开发入口 README.md / NAVIGATION_USB.md；下列上游历史仅作原始来源，不能作为
 本副本的实机验证结论。详见 DEV-20261125-LOCAL-NAV。
 
-2026-11-26 增加哨兵 USB 只读联调硬隔离：大 yaw 新鲜 CAN 角度按 50 Hz 回传，
-`SENTRY_AUTONOMY_ENABLE=0` 时导航速度在命令出口整帧清零，不进入底盘 PID。
-详见 DEV-20261126-LOCAL-YAW-FEEDBACK。
-
-同日增加大 yaw DM 反馈-only 使能：保持 CAN/MIT 通信在线，但所有 MIT 增益与
-力矩为零，并从编译期隔离大 yaw PID、测试动作和标定扫动。详见
-DEV-20261126-LOCAL-BIG-YAW-ENABLE。
-
-随后按用户要求恢复大 yaw 原 PID 参数，feedback-only 门控改为 0；底盘导航接管
-仍保持禁用。详见 DEV-20261126-LOCAL-BIG-YAW-PID。
-
 ## 0. AI 冷启动摘要
 
 <!-- AI 会话开始时只读本节即可接手;只放结论与链接,证据留在对应条目。人工接手同样建议先读这里。 -->
@@ -3846,36 +3835,16 @@ heat_limit=320)。若直接信裁判值,允许功率会比规则宽 30W。
 - 未验证：真实 USB 枚举、100 Hz 周期抖动和丢包、云台零位/正方向、遥控与 USB 失联、弹速/机器人 ID、发射保护及比赛环境。主机测试和 ARM 编译不等于实车验收。
 - AI：Codex（GPT-6），2026-11-26。
 
-## DEV-20261126-LOCAL-YAW-FEEDBACK — 大 yaw 只读回传与 PID 硬隔离
+## DEV-20261126-MERGE-UPSTREAM — 上游 RM-JIT-CR 6e63abe 优先合并入本地哨兵副本
 
-- 目标：STM32 通过 USB CDC 持续输出大 yaw 相对底盘角度，但不把上位机导航速度交给底盘 PID。
-- 反馈：仅对新鲜 DM CAN 快照按 20 ms 周期发送 NV v1 `FEEDBACK`，角度由 deg 转 rad，保留原采样时间和在线有效位；CAN 采样不更新时不伪造新时间。
-- 硬隔离：保持 `SENTRY_AUTONOMY_ENABLE=0`。该编译模式下 `autonomy_get_command()` 直接清零整条 `sentry_auto_cmd_t` 并返回 0，即使 USB 命令已经通过 CRC、序号和限幅检查也不会进入底盘 PID。
-- 测试：导航主机测试增加 feedback-only 与 drive-enabled 两种编译模式，分别覆盖 `-O0`、`-Ofast -flto`，四组全部通过；只读模式断言速度恒为零，且角度反馈协议仍可正常编码。13 个相关生产 C 文件通过主机语法检查。
-- ARM 编译：GNU Arm Embedded 14.3.1 全量编译链接通过；FLASH 119916 B/1 MiB（11.44%），RAM 73840 B/128 KiB（56.34%），CCMRAM 54944 B/64 KiB（83.84%）。生成未跟踪的 `firmware/current.elf`，SHA256 为 `EB07C4B505067EB6C0957ADDCEFE57628D8702057DC656ED706978B103F62E8F`；仅有工程既有 gimbal 未使用变量、newlib syscall 桩和 CMake COMMENT 警告。
-- 文档：同步更新 `README.md` 与 `NAVIGATION_USB.md`，明确只读固件和后续放行条件。
-- 边界：本次只改源码、测试和文档并完成 ARM 编译；不烧录、不启动实车底盘或发射机构。构建目录和固定 ELF 副本已加入忽略规则，不进入 Git。
-- AI：OpenAI Codex，2026-11-26。
-
-## DEV-20261126-LOCAL-BIG-YAW-ENABLE — 大 yaw DM 反馈-only 使能
-
-- 目标：使能大 yaw DM-J4310 的 CAN/MIT 通信以持续获得角度反馈，同时不让任何大 yaw PID 或测试动作产生力矩。
-- 配置：新增 `SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=1`。初始化和零力路径保持 DM 软件使能，MIT 位置、速度和力矩参考均为 0，驱动器 Kp/Kd 沿用初始化值 0。
-- 隔离：编译期排除大 yaw 角度环、速度环和力矩输出分支；标定 sweep 被立即撤销，台架 test mode 不能绕过反馈-only 门控。PID 状态每拍清零。
-- 保留：大 yaw CAN 解码、在线状态、采样时间和 USB NV v1 角度回传保持运行；pitch、小 yaw 和原遥控安全仲裁未改。
-- 验证：13 个相关生产 C 文件通过主机语法检查；feedback-only/drive-enabled 在 `-O0`、`-Ofast -flto` 四组协议测试通过。GNU Arm Embedded 14.3.1 全量编译链接通过，FLASH 118344 B（11.29%）、RAM 73832 B（56.33%）、CCMRAM 54944 B（83.84%）。
-- 固件：未跟踪的 `firmware/current.elf` SHA256 为 `69F61806D192FF1FA734AEEC8C773D17F8663ACF8277438D09AD352C15CD803A`。
-- 边界：本次只改源码、配置和文档并完成 ARM 编译；不烧录、不让实车电机产生控制力矩。
-- AI：OpenAI Codex，2026-11-26。
-
-## DEV-20261126-LOCAL-BIG-YAW-PID — 恢复大 yaw 原 PID 参数
-
-- 目标：按用户要求在 DM 电机使能基础上恢复此前的大 yaw 串级 PID，不重新整定参数。
-- 门控：`SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE` 由 1 改为 0，重新编译角度环、速度环、MIT 力矩和原标定/测试分支。
-- 角度环：Kp=12.0 1/s、Ki=0、Kd=0、死区=1.0 deg、速度参考限幅=240 deg/s、积分限幅=0。
-- 速度环：Kp=0.063 N·m/(deg/s)、Ki=0.0105 N·m/deg、Kd=0、积分限幅=1.2 N·m、输出限幅=10 N·m、输出低通 RC=0.03 s。
-- 独立安全门：`SENTRY_AUTONOMY_ENABLE=0` 保持不变，USB 导航速度仍在出口清零，不能接管底盘 PID。
-- 验证：13 个相关生产 C 文件通过语法检查；feedback-only/drive-enabled 在 `-O0`、`-Ofast -flto` 四组协议测试通过。GNU Arm Embedded 14.3.1 全量编译链接通过，FLASH 119916 B（11.44%）、RAM 73840 B（56.34%）、CCMRAM 54944 B（83.84%）。
-- 固件：未跟踪的 `firmware/current.elf` SHA256 为 `7CAB5F1C3976264014F73977444C007703DFE55B609E922ACDC3835C73B9C451`。
-- 边界：已完成主机测试和 ARM 编译；不烧录、不启动实体电机。
-- AI：OpenAI Codex，2026-11-26。
+- 授权与边界：用户明确要求“优先保证上游代码，后续代码再合并进去编译生效”及“禁止在小电脑编译，烧录在本地完成”。上游 `youyucat/RM-JIT-CR`（`6e63abe127c715c1da0d1079fb2dacfd7d396cef`）只读拉取至 `_ops/upstream_rm_jit_cr`，不向其提交或推送，原始 `RM-JIT-CR-main` 保留不动；合并前 19 个本地文件已备份至 `_ops/backups/pre_upstream_merge_20261126/`。
+- 合入的上游哨兵与公共改动（`DEV-20261126-01..11` 及公共层）：
+  - 直接快进 9 个文件：`apps/common/app/robot_def.h`、`apps/sentry/app/sentry_hooks.h`、`apps/sentry/cmd/cmd_authority.c`、`components/motor/dji/dji_motor.{c,h}`、`components/referee/ui/referee_task.c`、`config/sentry_2026/config_{board,chassis,gimbal}.h`。
+  - 上游优先三方合并 8 个文件：`apps/sentry/app/sentry_hooks.c`、`apps/sentry/cmd/{cmd_remote.c,robot_cmd.c}`、`apps/sentry/gimbal/gimbal.c`、`config/sentry_2026/{config.h,config_autonomy.h,config_ax650.h}`、`build.ps1`。
+  - 生效的上游关键实机配置与保护：`SENTRY_BIG_YAW_OUTPUT_ENABLE=0`（大 yaw 带载触发 `0xC` 线圈过温后的零力矩保护，保留 CAN 编码器反馈与采样时间）、`SENTRY_BIG_YAW_ZERO_RAD=1.436828f`（实测人工中心零位）、`SENTRY_SMALL_YAW_ENABLE=0`、右中挡 `CHASSIS_NO_FOLLOW`、删除解锁自动回中、`GIMBAL_VOFA_UART1_ENABLE=1`（USART1 三轴编码器 VOFA）、`build.ps1 sentry -Current` 同时输出 `firmware/sentry.elf` 与 `firmware/current.elf`。
+  - 完整保留本轮导航与共享 CDC 自瞄：`autonomy.*`（含 `Aveare/nav2@a484487` 在 `SENTRY_AUTONOMY_ENABLE=0` 时的 `memset` 硬清零与 `SENTRY_NAVIGATION_FEEDBACK_PERIOD_MS=20u` 及四组主机测试）、`nav_protocol.*`、`ax650_usb.*`、`usb_port.*`、`usbd_cdc_if.c`、`gimbal.c` 大 yaw 相对角与 `rx_sample_us` 临界区快照、`SENTRY_AUTONOMY_ENABLE=0`、`AX650_USB_ENABLE=1` / `AX650_UART1_ENABLE=0` 互斥守卫。
+- 验证证据（全部在本地 Windows / WSL 完成，未在小电脑编译，未烧录）：
+  - 本地 Windows ARM 编译（xPack GNU Arm Embedded `14.2.1`，经纯 ASCII 联接 `C:\sentry_fw` 运行 `.\build.ps1 sentry -Current`）：146/146 目标 0 错误；新增与改动导航/USB/自瞄代码 0 警告（仅保留上游既有 `gimbal.c` 2 条未使用变量与 4 条 newlib syscall 链接提示）；FLASH `121,072 B / 1 MB`（11.55%）、RAM `73,864 B / 128 KB`（56.35%）、CCMRAM `54,944 B / 64 KB`（83.84%）；`build_sentry/sentry.elf`、`firmware/sentry.elf`、`firmware/current.elf` 三份 SHA-256 均为 `531B7C80B5849158E55A510AE45012C02498B11347A3919017C001865FEE2C96`（1,389,376 B）。
+  - 本机 WSL 主机协议测试：`run_tests.py` 在 `feedback-only` 与 `drive-enabled` × `-O0` 与 `-Ofast -flto` 四组全通过，`NV` / `0x0503` / `0x1021` C/Python 字节逐位一致；`check_syntax.py` 13/13 生产 C 文件语法通过。
+- 未验证：未烧录到 C 板，未在实车验证合并后固件的 USB 枚举、大 yaw 零位 `1.436828 rad` 方向、VOFA 输出、遥控接管与 300 ms 看门狗超时。
+- AI：Gemini 4 Neon，2026-11-26。

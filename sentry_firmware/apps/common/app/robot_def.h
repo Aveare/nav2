@@ -76,6 +76,7 @@ typedef struct
                         // **必须放 chassis_mode 之前**:本结构体紧凑排布,
                         // 放在 u8 之后会落在奇地址,+17 处 float 读到的是垃圾(2026-11-21 实测)
     chassis_mode_e chassis_mode; // 决定 wz 来源,见 chassis_mode_e
+    uint8_t spin_vary;           // CHASSIS_ROTATE 档位:1=变速轨迹 0=恒速(CHASSIS_ROTATE_SPEED)
 } chassis_ctrl_cmd_t;
 
 /* 云台控制指令。yaw 是增量累加的世界系目标角,cmd 每周期在其上叠加; */
@@ -145,18 +146,18 @@ typedef struct
  * 只改断言不改固件,得到的是"编译通过但数据错位"的静默故障。
  *
  * 期望值来自工具链实测,不是理论值:
- *   ARM(arm-none-eabi,enum 占 1 字节):chassis_ctrl_cmd_t = 21,chassis_upload_t = 3
- *   主机 x86(enum 占 4 字节):          = 24,                  = 9
+ *   ARM(arm-none-eabi,enum 占 1 字节):chassis_ctrl_cmd_t = 22,chassis_upload_t = 3
+ *   主机 x86(enum 占 4 字节):          = 25,                  = 9
  * 换工具链或改编译选项后按实测值更新,不要沿用旧数字。 */
 #if defined(__arm__) || defined(__thumb__)
 _Static_assert(
-    sizeof(chassis_ctrl_cmd_t) == 21,
+    sizeof(chassis_ctrl_cmd_t) == 22,
     "Chassis_Ctrl_Cmd_s layout changed -> sync peer board firmware, then update this assert");
 _Static_assert(
     sizeof(chassis_upload_t) == 3,
     "Chassis_Upload_Data_s layout changed -> sync peer board firmware, then update this assert");
 #else
-_Static_assert(sizeof(chassis_ctrl_cmd_t) == 24,
+_Static_assert(sizeof(chassis_ctrl_cmd_t) == 25,
                "Chassis_Ctrl_Cmd_s layout changed (host ABI: enum=4B) -> update this assert");
 _Static_assert(sizeof(chassis_upload_t) == 9,
                "Chassis_Upload_Data_s layout changed (host ABI: enum=4B) -> update this assert");

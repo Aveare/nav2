@@ -159,7 +159,7 @@ void cmd_task(void)
         chassis_cmd.yaw_rate_cmd = rate_lp;
     }
 
-    /* 4. 输入源与 AX650 模式 */
+    /* 4. 输入源与旧 AX650 模式 */
     cmd_update_input_source();
 #if AX650_USB_ENABLE
     ax650_usb_set_mode(REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left)
@@ -173,9 +173,10 @@ void cmd_task(void)
     else if (REMOTE_RC_SWITCH_IS_DOWN(rc_data[RC_SLOT_CURRENT].rc.switch_left))
         cmd_remote_set();
 
-    /* 5. 解锁回中:只动底盘,云台世界目标保持不变(与步兵同语义) */
+    /* 5. 手动回中:键鼠 F 或小陀螺切回跟随触发;解锁不再触发(DEV-20261126-05) */
 #if SENTRY_GIMBAL_RECENTER_ENABLE
-    const uint8_t auto_aim_active = REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left);
+    const uint8_t auto_aim_active =
+        AX650_USB_ENABLE && REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left);
     if (auto_aim_active)
     {
         yaw_recentering = 0;

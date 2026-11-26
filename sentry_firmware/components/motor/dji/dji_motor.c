@@ -235,6 +235,7 @@ dji_motor_t *dji_motor_init(motor_init_config_t *config)
         return NULL;
     }
     memset(instance, 0, sizeof(dji_motor_t));
+    instance->output_scale = 1.0f; // 默认不限幅;仅底盘功率控制会改
 
     instance->motor_type = config->motor_type;
     instance->motor_settings = config->controller_setting_init_config;
@@ -370,6 +371,12 @@ void dji_motor_control()
         // 输出侧前馈与电流环
         if (motor_setting->feedforward_flag & CURRENT_FEEDFORWARD)
             pid_ref += *motor_controller->current_feedforward_ptr;
+
+        /* 功率限幅(DEV-20261126-12):先留未限幅的电流指令供模型预测,再按
+         * output_scale 压电流。默认 1.0,云台/发射等不受影响。 */
+        motor->current_cmd = pid_ref;
+        pid_ref *= motor->output_scale;
+
         if (motor_setting->close_loop_type & CURRENT_LOOP)
         {
             pid_ref = pid_calculate(&motor_controller->current_PID, measure->real_current, pid_ref);

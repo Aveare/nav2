@@ -3,8 +3,8 @@
  * @brief   哨兵三轴云台参数:大 yaw(DM MIT)/ 小 yaw(GM6020)/ pitch(DM MIT)
  * @layer   CONFIG
  * @author  小猫大王
- * @note    控制分配:**小 yaw 先吃掉世界目标误差,大 yaw 只在小 yaw 相对角饱和后
- *          承担剩余误差**;pitch 直接跟踪世界俯仰目标。
+ * @note    当前关闭小 yaw 输出,世界 yaw 目标全部交给大 yaw;GM6020 只保留反馈与 VOFA。
+ *          重新使能小 yaw 后恢复粗精分离;pitch 直接跟踪世界俯仰目标。
  * @note    DM 控制力矩单位为 N·m,位置/速度为电机轴域;变速比按输出轴/电机轴定义。
  * @note    零位/方向/限位全部 [待实测];首次上电必须架空、逐轴确认符号。
  */
@@ -21,7 +21,6 @@
 
 #define SENTRY_BIG_YAW_DM_ID 5         /* [实测-参考] 大 yaw DM 控制 ID,CAN1 */
 #define SENTRY_BIG_YAW_DM_MASTER_ID 0  /* [实测-参考] 大 yaw 反馈 Master ID */
-#define SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE 0 /* [配置] 0=恢复原大 yaw 角度/速度 PID;1=仅使能反馈且零力 */
 #define SENTRY_PITCH_DM_ID 5           /* [实测-参考] pitch DM 控制 ID,CAN2 */
 #define SENTRY_PITCH_DM_MASTER_ID 0    /* [实测-参考] pitch 反馈 Master ID */
 #define SENTRY_SMALL_YAW_ESC_ID 1      /* [实测-参考] GM6020 拨码 ID,CAN2 */
@@ -35,7 +34,7 @@
 #define SENTRY_SMALL_YAW_DIRECTION (+1.0f)    /* [待实测] GM6020 正输出 → 相对角正方向 */
 #define SENTRY_BIG_YAW_TRANSMISSION_RATIO 0.96f /* [实测 2026-11-23] 手转上部斜率法 0.974/0.945,两次取中 0.96;齿数未数 */
 #define SENTRY_PITCH_TRANSMISSION_RATIO 1.0f   /* [待实测] 输出轴/电机轴 */
-#define SENTRY_BIG_YAW_ZERO_RAD (-0.470f)      /* [实测 2026-11-23] 机械正前时 total_position;比值≠1,断电整圈歧义约 15° */
+#define SENTRY_BIG_YAW_ZERO_RAD 1.436828f       /* [实测 2026-11-26] 人工摆正中心时 total_position;不触发自动回中 */
 #define SENTRY_PITCH_ZERO_RAD (-1.935f)        /* [实测 2026-11-23] 枪管水平时 pitch 电机 total_position,rad(阶段0采集) */
 #define SENTRY_SMALL_YAW_ZERO_ECD 27           /* [实测-参考 shaobin 2026-11-22 21:13] 小 yaw 机械中位;离回绕点 8192 仅 27 计数,解缠是硬要求 */
 #define SENTRY_IMU_AFTER_SMALL_YAW 0
@@ -45,19 +44,21 @@
 
 /* ---------------- 大 yaw(DM-J4310,MIT 力矩) ---------------- */
 
+#define SENTRY_BIG_YAW_OUTPUT_ENABLE 0       /* [实测 2026-11-26] 10Nm 仍带不动且触发线圈过温;固定零力矩 */
 #define SENTRY_BIG_YAW_MAX_TORQUE_NM 10.0f  /* [规格] 必须 ≤ 驱动器 TMAX;J4310 参考值 10 */
 #define SENTRY_BIG_YAW_ANGLE_KP 12.0f       /* [待实测] 角度环 Kp,1/s;虚位下偏软会顿,12 起调 */
 #define SENTRY_BIG_YAW_ANGLE_DEADBAND 1.0f  /* [待实测] 角度死区,deg;2° 偏大会像"不动",1° 起调 */
 #define SENTRY_BIG_YAW_MAX_SPEED_DEG_S 240.0f /* [待实测] 角度环输出限幅,deg/s */
 #define SENTRY_BIG_YAW_ANGLE_IL 0.0f        /* [理论] 角度环不积分(速度环负责) */
-#define SENTRY_BIG_YAW_SPEED_KP 0.063f      /* [待实测] 速度环 Kp,Nm/(deg/s)≈3.6 Nm/(rad/s) */
-#define SENTRY_BIG_YAW_SPEED_KI 0.0105f     /* [待实测] 速度环 Ki,Nm/deg≈0.6 Nm/rad */
-#define SENTRY_BIG_YAW_SPEED_IL 1.2f        /* [待实测] 速度环积分限幅,Nm */
+#define SENTRY_BIG_YAW_SPEED_KP 0.10f       /* [待实测] 速度误差→力矩;0.063→0.10 增强起步出力(DEV-20261126-07) */
+#define SENTRY_BIG_YAW_SPEED_KI 0.015f      /* [待实测] 静摩擦补偿;0.0105→0.015,效果待架空确认 */
+#define SENTRY_BIG_YAW_SPEED_IL 2.0f        /* [待实测] 积分力矩限幅,Nm;1.2→2.0,防止长期顶死 */
 #define SENTRY_BIG_YAW_SPEED_MAXOUT 10.0f   /* [规格] 速度环输出限幅,Nm */
 #define SENTRY_BIG_YAW_OUTPUT_LPF_RC 0.03f  /* [待实测] 力矩输出低通 RC,s */
 
 /* ---------------- 小 yaw(GM6020,相对精瞄) ---------------- */
 
+#define SENTRY_SMALL_YAW_ENABLE 0               /* [配置] 0=GM6020 零输出,仅保留反馈/VOFA;1=参与双 yaw 分配 */
 #define SENTRY_SMALL_YAW_LIMIT_DEG 135.0f       /* [实测 2026-11-23] 电机端行程 ±136°,取 135 留 1° 余量 */
 #define SENTRY_SMALL_YAW_LIMIT_MARGIN_DEG 10.0f  /* [理论] 目标角夹在 ±125°,留惯性余量 */
 #define SENTRY_SMALL_YAW_FINE_DEG 10.0f          /* [设计] 粗精分离:小 yaw 只吃 ±10°,大 yaw 承担其余 */
@@ -95,4 +96,11 @@
 /* ---------------- 链路 / 安全 ---------------- */
 
 #define SENTRY_GIMBAL_DM_LOST_MS 100.0f     /* [理论] DM 反馈超时判据,ms(约 50 个 DM 周期) */
-#define SENTRY_GIMBAL_RECENTER_ENABLE 1     /* [配置] 解锁时大 yaw 目标重锚定 + 小 yaw 回中 */
+#define SENTRY_GIMBAL_RECENTER_ENABLE 1     /* [配置] 键鼠 F/小陀螺切回跟随时允许底盘回中 */
+
+/* ---------------- UART1 / VOFA 编码器观测 ---------------- */
+
+#define GIMBAL_VOFA_UART1_ENABLE 1
+/* [配置] 1=USART1 以 VOFA JustFloat 输出三轴编码器位置,同时必须关闭 AX650。 */
+#define GIMBAL_VOFA_SEND_DIVIDER 1u
+/* [配置] 200 Hz `gimbal_task` 分频;1=200 Hz,2=100 Hz。 */

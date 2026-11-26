@@ -65,4 +65,4 @@
 
 /* ---------------- 调试口 ---------------- */
 
-#define CHASSIS_VOFA_UART1_ENABLE 0 /* [配置] 1=USART1 改作底盘 VOFA(必须关 AX650) */
+#define CHASSIS_VOFA_UART1_ENABLE 0 /* [配置] 哨兵当前 UART1 给云台 VOFA,底盘 VOFA 保持关闭 */

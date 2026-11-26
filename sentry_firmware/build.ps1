@@ -1,6 +1,6 @@
 # One-command profile build: config + compile, then print the ELF path.
 # Usage: .\build.ps1 sentry            (or infantry / heavy; default infantry)
-#        .\build.ps1 sentry -Current   (also copy to firmware/current.elf for EmberProbe)
+#        .\build.ps1 sentry -Current   (also create firmware/sentry.elf and current.elf)
 # Flashing is intentionally NOT automated; flash the printed ELF manually.
 #
 # cmake / ninja / arm-none-eabi-gcc are resolved automatically: PATH first, then the ST bundle
@@ -93,14 +93,32 @@ try {
         sentry   = 'build_sentry'
         heavy    = 'build_heavy'
     }[$Profile]
-    $elf = Join-Path (Join-Path $projectRoot $buildDir) 'basic_framework.elf'
-    if (-not (Test-Path $elf)) { throw "ELF not found: $elf" }
-    $elf = (Resolve-Path $elf).Path
+    $sourceElf = Join-Path (Join-Path $projectRoot $buildDir) 'basic_framework.elf'
+    if (-not (Test-Path $sourceElf)) { throw "ELF not found: $sourceElf" }
+    $sourceElf = (Resolve-Path $sourceElf).Path
+
+    # Give the sentry artifact an explicit profile name without breaking the CMake target name.
+    $elf = $sourceElf
+    if ($Profile -eq 'sentry') {
+        $elf = Join-Path (Split-Path -Parent $sourceElf) 'sentry.elf'
+        Copy-Item -LiteralPath $sourceElf -Destination $elf -Force
+        $elf = (Resolve-Path $elf).Path
+    }
 
     $currentElf = $null
+    $namedFirmwareElf = $null
     if ($Current) {
         $firmwareDir = Join-Path $projectRoot 'firmware'
         New-Item -ItemType Directory -Force -Path $firmwareDir | Out-Null
+        if ($Profile -eq 'sentry') {
+            $namedFirmwareElf = Join-Path $firmwareDir 'sentry.elf'
+            try {
+                Copy-Item -LiteralPath $elf -Destination $namedFirmwareElf -Force
+            }
+            catch {
+                throw "cannot update firmware/sentry.elf (stop debug/flash and retry): $_"
+            }
+        }
         $currentElf = Join-Path $firmwareDir 'current.elf'
         try {
             Copy-Item -LiteralPath $elf -Destination $currentElf -Force
@@ -116,9 +134,10 @@ try {
         $lines = @(
             "PROFILE=$Profile"
             "SOURCE=$elf"
+            $(if ($namedFirmwareElf) { "NAMED=$namedFirmwareElf" })
             "UPDATED=$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
             "SHA256=$hash"
-        )
+        ) | Where-Object { $_ }
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
         [System.IO.File]::WriteAllLines($infoPath, $lines, $utf8NoBom)
     }
@@ -127,9 +146,15 @@ try {
     Write-Host "PROFILE : $Profile"
     Write-Host "ELF     : $elf"
     if ($Current) {
+        if ($namedFirmwareElf) { Write-Host "SENTRY  : $namedFirmwareElf" }
         Write-Host "CURRENT : $currentElf"
         Write-Host "INFO    : firmware/current.txt"
-        Write-Host 'Next    : flash firmware/current.elf (EmberProbe pins this path once).'
+        if ($namedFirmwareElf) {
+            Write-Host 'Next    : flash firmware/sentry.elf (current.elf remains for EmberProbe compatibility).'
+        }
+        else {
+            Write-Host 'Next    : flash firmware/current.elf (EmberProbe pins this path once).'
+        }
     }
     else {
         Write-Host 'Next    : flash the ELF above (flashing is not automated by this script).'

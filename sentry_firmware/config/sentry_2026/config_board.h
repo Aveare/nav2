@@ -12,7 +12,7 @@
 // #define CHASSIS_BOARD
 // #define GIMBAL_BOARD
 
-#define VISION_USE_VCP // 兼容旧模块的编译选择;AX650 使用独立 USART1 链路
+#define VISION_USE_VCP // [配置] 上位机通讯物理链路使用 USB CDC VCP;应用帧协议待单独定义
 
 /* 底盘台架安全锁:1=四个底盘 M3508 强制零输出(云台/发射不受影响)。
  * 首次理线、架空测试、焊云台时置 1;需要跑底盘时改回 0 重烧。

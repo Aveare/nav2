@@ -1,16 +1,16 @@
 /**
  * @file    config_ax650.h
- * @brief   哨兵 AX650 自瞄链路:USB CDC / 目标整形 / 自瞄辅助参数
+ * @brief   哨兵旧 AX650 自瞄链路:当前关闭,保留目标整形参数供历史兼容
  * @layer   CONFIG
  * @author  小猫大王
- * @note    复用 components/ax650 的 0x0503 协议;视觉端输出世界系 yaw/pitch 目标。
- *          USB CDC 与导航共用，由 autonomy 作为唯一端口所有者统一分流。
+ * @note    当前上位机通讯改走 USB CDC VCP,USART1 专用于三轴编码器 VOFA。
+ *          VCP 帧协议尚未定义,不得把旧 AX650 0x0503 协议直接套到 USB 链路。
  */
 #pragma once
 
 #define AX650_USB_ENABLE   1
 #define AX650_UART1_ENABLE 0
-/* [配置] 自瞄改走 USB CDC；USART1 释放给调试，禁止两个 AX650 传输同时启用。 */
+/* [配置] 哨兵不再使用 AX650;保持 0,释放 USART1 给云台 VOFA。 */
 #ifndef AX650_UART1_RX_ENABLE
 #define AX650_UART1_RX_ENABLE 0
 #endif

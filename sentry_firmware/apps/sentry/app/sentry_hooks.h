@@ -8,7 +8,7 @@
 #define SENTRY_HOOKS_H
 
 /**
- * @brief 姿态任务启动前钩子:AX650 USART1 链路初始化
+ * @brief 姿态任务启动前钩子:按配置选择是否初始化旧 AX650 链路
  * @note  由 app_shell 的 INS 任务在 ins_init() 之后、首拍 ins_task() 之前调用。
  */
 void sentry_ins_init(void);
