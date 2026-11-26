@@ -1,0 +1,1 @@
+{"version":3,"configurePresets":[{"name":"sentry","generator":"Ninja","binaryDir":"${sourceDir}/build_sentry","cacheVariables":{"ROBOT_PROFILE":"sentry","CONFIG_PROFILE":"sentry_2026","CMAKE_BUILD_TYPE":"Debug"}}],"buildPresets":[{"name":"sentry","configurePreset":"sentry"}]}

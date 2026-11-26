@@ -1,0 +1,4 @@
+# T14 宏重复豁免清单(tools/check_macro_dups.py 读取;只登记"同名同值且有 #ifndef 守卫"的约定宏)
+# 行格式: NAME|理由
+# 2026-11-23 命名统一后:TRUE/FALSE 已改用 <stdbool.h>;user_malloc 已改名 MATH_MALLOC
+MATH_MALLOC|平台选择条件宏,#ifndef 守卫;kalman_filter.h 不能 include cmsis_os.h,否则 malloc→pvPortMalloc 行为漂移(DEV-20261122-25)

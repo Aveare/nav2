@@ -1,0 +1,51 @@
+# Handheld sensor input. Internal LiDAR/IMU calibration is inherited from COD and remains to be checked.
+small_point_lio:
+  ros__parameters:
+    lidar_topic: /handheld_mapping/livox/lidar
+    imu_topic: /handheld_mapping/livox/imu
+    lidar_type: livox_pointcloud2
+    lidar_frame: livox_frame
+    save_pcd: true
+    point_filter_num: 1
+    min_distance: 0.5
+    max_distance: 30.0
+    space_downsample: true
+    space_downsample_leaf_size: 0.2
+    gravity:
+    - 0.0
+    - 0.0
+    - -9.81
+    fix_gravity_direction: true
+    check_satu: true
+    satu_acc: 3.0
+    satu_gyro: 35.0
+    acc_norm: 1.0
+    map_resolution: 0.5
+    init_map_size: 10
+    extrinsic_est_en: false
+    extrinsic_T:
+    - -0.011
+    - -0.02329
+    - 0.04412
+    extrinsic_R:
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+    laser_point_cov: 0.01
+    imu_meas_acc_cov: 0.01
+    imu_meas_omg_cov: 0.01
+    velocity_cov: 20.0
+    acceleration_cov: 500.0
+    omg_cov: 1000.0
+    ba_cov: 0.0001
+    bg_cov: 0.0001
+    plane_threshold: 0.1
+    match_sqaured: 81.0
+    publish_odometry_without_downsample: false
+    use_sim_time: false

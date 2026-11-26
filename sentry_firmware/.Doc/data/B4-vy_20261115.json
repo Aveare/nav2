@@ -1,0 +1,34 @@
+﻿{
+  "ok": true,
+  "label": "B4-vy",
+  "axis": "vy",
+  "axisName": "横移(左右)",
+  "geometry": {
+    "radiusMm": 75,
+    "reductionRatio": 19,
+    "wheelRatioDegPerMm": 14.5149,
+    "mmPerDeg": 0.097432
+  },
+  "dAngleDeg": {
+    "LF": -20700.2,
+    "RF": -21959.6,
+    "LB": 21088.5,
+    "RB": 20602.3
+  },
+  "perWheelMm": {
+    "LF": 2016.9,
+    "RF": 2139.6,
+    "LB": 2054.7,
+    "RB": 2007.3
+  },
+  "distanceMm": 2054.6,
+  "wheelSpreadPct": 6.44,
+  "spreadVerdict": "四轮不一致>5%,查拖轮/打滑/未着地",
+  "uptimeS": {
+    "mark": 216490.515625,
+    "now": 266340.53125,
+    "rebooted": false
+  },
+  "expectMm": 2000,
+  "errorPct": 2.73
+}

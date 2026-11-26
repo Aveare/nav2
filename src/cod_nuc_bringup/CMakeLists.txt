@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.8)
+project(cod_nuc_bringup)
+find_package(ament_cmake REQUIRED)
+install(DIRECTORY launch config maps DESTINATION share/${PROJECT_NAME})
+install(FILES HARDWARE_FRAMES.md DESTINATION share/${PROJECT_NAME})
+install(PROGRAMS scripts/big_yaw_tf.py scripts/chassis_odometry.py scripts/sentry_usb_bridge.py
+  DESTINATION lib/${PROJECT_NAME})
+install(FILES scripts/chassis_geometry.py scripts/nav_wire.py DESTINATION lib/${PROJECT_NAME})
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(chassis_geometry test/test_chassis_geometry.py)
+  ament_add_pytest_test(chassis_ros test/test_chassis_ros.py
+    ENV ROS_DOMAIN_ID=217 ROS_LOCALHOST_ONLY=1)
+  ament_add_pytest_test(hardware_launch test/test_hardware_launch.py)
+  ament_add_pytest_test(nav_wire test/test_nav_wire.py)
+  ament_add_pytest_test(usb_bridge test/test_usb_bridge.py ENV ROS_DOMAIN_ID=218 ROS_LOCALHOST_ONLY=1)
+endif()
+ament_package()

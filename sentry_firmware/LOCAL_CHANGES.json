@@ -1,0 +1,185 @@
+{
+  "date": "2026-11-25",
+  "original_download_unchanged": true,
+  "copied_source_files": 538,
+  "remote_operations": "none",
+  "git_metadata": "none",
+  "third_party_unchanged": true,
+  "checks": {
+    "c_host_debug": "passed",
+    "c_host_release_Ofast_lto": "passed",
+    "c_python_wire_bytes": "identical",
+    "production_c_host_syntax": "9 files passed; not ARM build",
+    "ros_colcon": "20 tests, 0 errors, 0 failures",
+    "upstream_audit": "blocked: snapshot HASH LICENSE",
+    "arm_build": "not run: compiler unavailable",
+    "hardware": "not connected; not flashed"
+  },
+  "changes": [
+    {
+      "path": "AGENTS.md",
+      "status": "modified",
+      "sha256": "449a87193ed7f227dd2c8cf46d02fa555bfb1be0c5507cbd66e008820762e3ae"
+    },
+    {
+      "path": "apps/sentry/app/assembly.c",
+      "status": "modified",
+      "sha256": "65f1404d740f697aacdb1a85c86690f58fdd410131a69c8779d203deffe7762a"
+    },
+    {
+      "path": "apps/sentry/app/sentry_def.h",
+      "status": "modified",
+      "sha256": "3190434773634be68c94ebd12c58e11cb104f9fc3695ae3b4510235b212b0c6e"
+    },
+    {
+      "path": "apps/sentry/autonomy/autonomy.c",
+      "status": "modified",
+      "sha256": "11702d072d286f6dc325b073ec3826ec7d83c52f4cfbc49a0e0e438b112f217d"
+    },
+    {
+      "path": "apps/sentry/autonomy/autonomy.h",
+      "status": "modified",
+      "sha256": "ec07334dd97105240d1ead6c1c679b3aaef0374b3083d21d0eaf381969c73e34"
+    },
+    {
+      "path": "apps/sentry/chassis/chassis.c",
+      "status": "modified",
+      "sha256": "c9d6b69f3bc4534852a1bdd749db11aa6cc206c9537a8716abe0b808d3f65826"
+    },
+    {
+      "path": "apps/sentry/cmd/robot_cmd.c",
+      "status": "modified",
+      "sha256": "3865ff6016a3eda4e4eab4a9c5c0f48e6e2438579712e6cadaf78b40a0811274"
+    },
+    {
+      "path": "apps/sentry/gimbal/gimbal.c",
+      "status": "modified",
+      "sha256": "e8f94dde28de53fc30c5036bb3bc4fe42b99b4f85382ce20a174aa56ed1d09b5"
+    },
+    {
+      "path": "build.ps1",
+      "status": "modified",
+      "sha256": "ccd276651fb892d480ab9581570e0b135537b943059682d642a7592128993a21"
+    },
+    {
+      "path": "CMakeLists.txt",
+      "status": "modified",
+      "sha256": "47e7c87aeeb4273cc27ae18de6baa7e4a926d7d3dd9047acf794a5d4a3546605"
+    },
+    {
+      "path": "CMakePresets.json",
+      "status": "modified",
+      "sha256": "6402b9be378a457c19609b2e81c03470124f8744a9d946f39b0205f4d837c3cd"
+    },
+    {
+      "path": "COLCON_IGNORE",
+      "status": "added",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "components/motor/dm/dm_motor.c",
+      "status": "modified",
+      "sha256": "d27f94540ac582951f47d8d16ed66422d224360c56d851f04d0f9e3eb0d37b25"
+    },
+    {
+      "path": "components/motor/dm/dm_motor.h",
+      "status": "modified",
+      "sha256": "bc63608ab874eaee65a9a66e257a5618590ac252cfa43212a56180c4c8625089"
+    },
+    {
+      "path": "components/navigation/nav_protocol.c",
+      "status": "added",
+      "sha256": "42f48167d9542e98ff624bedf6a1f94974510fc29fe2908247ede03d44725601"
+    },
+    {
+      "path": "components/navigation/nav_protocol.h",
+      "status": "added",
+      "sha256": "65deb9d2f9d5e48987e2e5dd1a42dcb90f859e27e04658e99d05950fae5b386d"
+    },
+    {
+      "path": "config/sentry_2026/config_autonomy.h",
+      "status": "modified",
+      "sha256": "8be817f0a9ee5337941e160adbbfe5ac5b5330c2922c4bd7c7788818ad2cbc97"
+    },
+    {
+      "path": "framework/types.h",
+      "status": "modified",
+      "sha256": "da2b5c4d65313fdbb22089c3c08b25bb0d336fe6fcf691112952ef2089a4bbdb"
+    },
+    {
+      "path": "NAVIGATION_USB.md",
+      "status": "added",
+      "sha256": "24b9180e805c603038782b1883cf0970f368a3b59aab5dded233f38fca627135"
+    },
+    {
+      "path": "ports/freertos/kernel_freertos.c",
+      "status": "modified",
+      "sha256": "74eec1327b48fcfc6f122af0aad2daa1c03fd45c854c9f7e986d4ff49554c6bb"
+    },
+    {
+      "path": "ports/stm32f4/usb_port.c",
+      "status": "modified",
+      "sha256": "393036183ffb1f7b7cc17e5428f7fcf2460ad1084de9dcfeee00b3c492fd4d07"
+    },
+    {
+      "path": "ports/stm32f4/usb_port.h",
+      "status": "modified",
+      "sha256": "c62db1032eba9cb18ea9ae647aeac01f31078e90b5e60682fc244fa31ebde70c"
+    },
+    {
+      "path": "README.md",
+      "status": "added",
+      "sha256": "85c7e7893b3b86ecb23a2089efae26c652aa2c3878d9de61b37d1fdae70438fd"
+    },
+    {
+      "path": "RM_DEVLOG.md",
+      "status": "modified",
+      "sha256": "e9538b9791f0335940e65aa0db35ec779ca9632b0c8a4753130c8ad4029cb668"
+    },
+    {
+      "path": "Src/usbd_cdc_if.c",
+      "status": "modified",
+      "sha256": "a6956498d95d6079b6044c826e380e73f39efedc06215c1de7db5832d9583e5b"
+    },
+    {
+      "path": "tests/navigation/check_syntax.py",
+      "status": "added",
+      "sha256": "d6f64c7f9f44029fc26faaf709f5c77eaf4215ea59e5848653f2e6fc1e438ed3"
+    },
+    {
+      "path": "tests/navigation/navigation_test.c",
+      "status": "added",
+      "sha256": "ca8154ce4fa19939dfa21ed0ffaee9df6b7f8132f8bdd5236b2612967d9b6f40"
+    },
+    {
+      "path": "tests/navigation/run_tests.py",
+      "status": "added",
+      "sha256": "0a89b2aa3656d6c3161f48dee4ed5b5b4fea3605de1683275ba9174bdb4cf77d"
+    },
+    {
+      "path": "tests/navigation/stubs/config.h",
+      "status": "added",
+      "sha256": "5b51b69e22fe82fc823ca2da7dbd583f28e7d359db37d6cffa06ed4919bdd3ec"
+    },
+    {
+      "path": "tests/navigation/stubs/kernel.h",
+      "status": "added",
+      "sha256": "10f80f34a4ad63e695b5f2eb2ea8c9e0c0e77cb96fb5d9e3faee789928eb7611"
+    },
+    {
+      "path": "tests/navigation/stubs/msg.h",
+      "status": "added",
+      "sha256": "6abf7de436485b856389afcfc3ab11aaa0ce4ed0279649d7747dbe449c314a06"
+    },
+    {
+      "path": "tests/navigation/stubs/sentry_def.h",
+      "status": "added",
+      "sha256": "dc1438c9db77b3d49929e4d06fa6dd8696960c383630e7286ee1eb103736543e"
+    },
+    {
+      "path": "tests/navigation/stubs/usb_port.h",
+      "status": "added",
+      "sha256": "14428cfae55dfba68dc55559041de68bb046d1a0d8c4a74e97caee6d4f915cd1"
+    }
+  ]
+}

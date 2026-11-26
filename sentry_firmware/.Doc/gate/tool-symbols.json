@@ -1,0 +1,133 @@
+{
+ "ins_state.Gyro[0]": [
+  "tools/pitch_trace.js"
+ ],
+ "ins_state.Pitch": [
+  "tools/pitch_trace.js"
+ ],
+ "chassis_cmd_recv.chassis_mode": [
+  "tools/chassis_trace.js"
+ ],
+ "chassis_cmd_recv.offset_angle": [
+  "tools/chassis_trace.js",
+  "tools/follow_trace.js",
+  "tools/gimbal_trace.js",
+  "tools/pitch_calib.js"
+ ],
+ "chassis_cmd_recv.vx": [
+  "tools/chassis_trace.js"
+ ],
+ "chassis_cmd_recv.vy": [
+  "tools/chassis_trace.js"
+ ],
+ "chassis_cmd_recv.wz": [
+  "tools/chassis_trace.js",
+  "tools/follow_trace.js"
+ ],
+ "chassis_cmd_recv.yaw_rate_cmd": [
+  "tools/follow_trace.js"
+ ],
+ "gimbal_cmd_recv.pitch": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js",
+  "tools/pitch_trace.js"
+ ],
+ "gimbal_cmd_recv.yaw": [
+  "tools/gimbal_axis_probe.js",
+  "tools/gimbal_trace.js",
+  "tools/pitch_calib.js"
+ ],
+ "gimbal_imu_data->Gyro[0]": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js"
+ ],
+ "gimbal_imu_data->Gyro[1]": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js"
+ ],
+ "gimbal_imu_data->Gyro[2]": [
+  "tools/chassis_trace.js",
+  "tools/follow_trace.js",
+  "tools/gimbal_axis_probe.js",
+  "tools/gimbal_trace.js",
+  "tools/pitch_calib.js"
+ ],
+ "gimbal_imu_data->Pitch": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js"
+ ],
+ "gimbal_imu_data->Roll": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js"
+ ],
+ "gimbal_imu_data->Yaw": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js"
+ ],
+ "gimbal_imu_data->YawTotalAngle": [
+  "tools/chassis_trace.js",
+  "tools/gimbal_trace.js"
+ ],
+ "motor_lb->measure.real_current": [
+  "tools/chassis_trace.js"
+ ],
+ "motor_lb->measure.speed_aps": [
+  "tools/chassis_trace.js"
+ ],
+ "motor_lf->measure.real_current": [
+  "tools/chassis_trace.js"
+ ],
+ "motor_lf->measure.speed_aps": [
+  "tools/chassis_trace.js"
+ ],
+ "motor_rb->measure.real_current": [
+  "tools/chassis_trace.js"
+ ],
+ "motor_rb->measure.speed_aps": [
+  "tools/chassis_trace.js"
+ ],
+ "motor_rf->measure.real_current": [
+  "tools/chassis_trace.js"
+ ],
+ "motor_rf->measure.speed_aps": [
+  "tools/chassis_trace.js"
+ ],
+ "pitch_motor->measure.real_current": [
+  "tools/pitch_calib.js",
+  "tools/pitch_trace.js"
+ ],
+ "pitch_motor->measure.speed_aps": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js",
+  "tools/pitch_trace.js"
+ ],
+ "pitch_motor->measure.temperature": [
+  "tools/pitch_calib.js"
+ ],
+ "pitch_motor->motor_controller.speed_PID.Iout": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js",
+  "tools/pitch_trace.js"
+ ],
+ "pitch_motor->motor_controller.speed_PID.Output": [
+  "tools/gimbal_axis_probe.js",
+  "tools/pitch_calib.js",
+  "tools/pitch_trace.js"
+ ],
+ "yaw_motor->measure.real_current": [
+  "tools/gimbal_trace.js"
+ ],
+ "yaw_motor->measure.speed_aps": [
+  "tools/gimbal_trace.js"
+ ],
+ "yaw_motor->measure.temperature": [
+  "tools/gimbal_trace.js"
+ ],
+ "yaw_motor->motor_controller.speed_PID.Iout": [
+  "tools/gimbal_trace.js"
+ ],
+ "yaw_motor->motor_controller.speed_PID.Output": [
+  "tools/gimbal_axis_probe.js",
+  "tools/gimbal_trace.js"
+ ]
+}

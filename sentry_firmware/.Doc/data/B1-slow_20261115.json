@@ -1,0 +1,15 @@
+{
+  "test": "B1 直线 2m 手推(慢推)",
+  "label": "B1-slow",
+  "date": "2026-11-15T14:47+08:00",
+  "board": { "markBootMs": 262462.5625, "readBootMs": 340097.4375, "rebooted": false },
+  "geometry": { "radiusMm": 75, "reductionRatio": 19, "wheelRatioDegPerMm": 14.5149, "mmPerDeg": 0.097432 },
+  "dAngleDeg": { "LF": -21206.9, "RF": 19898.7, "LB": -20542.0, "RB": 20468.3 },
+  "perWheelMm": { "LF": 2066.2, "RF": 1938.8, "LB": 2001.4, "RB": 1994.3 },
+  "distanceMm": 2000.2,
+  "wheelSpreadPct": 6.37,
+  "expectMm": 2000,
+  "errorPct": 0.01,
+  "verdict": "PASS:比例正确(误差 0.01% < 3%);四轮离散 6.4%,属手推左右不对称,低于 10% 打滑门限",
+  "note": "本文件为控制台输出转录:读数完成后板子掉电(SWD 报 cannot read IDR),落盘的那次 odom delta 因目标已停返回 ok:false,故手工补录正确读数。原始命令:node tools/odom.js delta B1-slow --expect 2000"
+}
