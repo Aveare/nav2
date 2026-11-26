@@ -14,8 +14,12 @@ from nav2_common.launch import RewrittenYaml
 def setup(context):
     share = get_package_share_directory('cod_nuc_bringup')
     cod = get_package_share_directory('cod_bringup')
-    value = lambda name: LaunchConfiguration(name).perform(context)
-    enabled = lambda name: value(name).lower() == 'true'
+    value = lambda name, default='': (
+        LaunchConfiguration(name).perform(context)
+        if name in context.launch_configurations
+        else default
+    )
+    enabled = lambda name, default='false': value(name, default).lower() == 'true'
     mode = value('mode')
     if mode not in ('localization', 'mapping'):
         raise ValueError('mode must be localization or mapping')
@@ -68,8 +72,11 @@ def setup(context):
         footprint = ast.literal_eval(value('footprint'))
         if len(footprint) < 3 or any(len(point) != 2 or not all(math.isfinite(v) for v in point) for point in footprint):
             raise ValueError('footprint must contain the measured base_link polygon (at least 3 xy points)')
+        radius_str = str(max(math.hypot(*point) for point in footprint))
         rewrites = {'footprint': value('footprint'),
-                    'behavior_server.ros__parameters.robot_radius': str(max(math.hypot(*point) for point in footprint))}
+                    'behavior_server.ros__parameters.robot_radius': radius_str,
+                    'local_costmap.local_costmap.ros__parameters.robot_radius': radius_str,
+                    'global_costmap.global_costmap.ros__parameters.robot_radius': radius_str}
         for costmap in ('local_costmap', 'global_costmap'):
             prefix = costmap + '.' + costmap + '.ros__parameters.stvl_voxel_layer.'
             rewrites[prefix + 'observation_sources'] = 'livox_source'
@@ -81,6 +88,10 @@ def setup(context):
         nodes.append(Node(package='cod_nuc_bringup', executable='sentry_usb_bridge.py', output='screen',
                           parameters=[{'port': value('serial_port'), 'enable_drive': enabled('enable_drive'),
                                        'enable_autoaim': enabled('enable_autoaim')}]))
+    if enabled('start_async_workflow', 'false'):
+        nodes.append(Node(package='cod_nuc_bringup', executable='sentry_async_workflow.py', output='screen',
+                          parameters=[{'waypoints_file': value('waypoints_file', ''),
+                                       'auto_patrol': enabled('auto_patrol', 'false')}]))
     return nodes
 
 
@@ -94,6 +105,9 @@ def generate_launch_description():
         DeclareLaunchArgument('serial_port', default_value='/dev/ttyACM0'),
         DeclareLaunchArgument('enable_drive', default_value='false'),
         DeclareLaunchArgument('enable_autoaim', default_value='false'),
+        DeclareLaunchArgument('start_async_workflow', default_value='false'),
+        DeclareLaunchArgument('auto_patrol', default_value='false'),
+        DeclareLaunchArgument('waypoints_file', default_value=''),
         DeclareLaunchArgument('imu_extrinsics_confirmed', default_value='false'),
         DeclareLaunchArgument('footprint', default_value='[]'),
         DeclareLaunchArgument('map', default_value=os.path.join(cod, 'maps', 'rmul2026.yaml')),

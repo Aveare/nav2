@@ -141,7 +141,7 @@ controller_server:
         cost_power: 1
         repulsion_weight: 1.5 #排斥权重
         critical_weight: 20.0 #近距离障碍物惩罚
-        consider_footprint: false #用圆形近似，omni机器人更高效
+        consider_footprint: true #与 local_costmap 多边形 footprint 保持一致，消除碰撞检测形状不一致告警
         collision_cost: 10000.0
         collision_margin_distance: 0.25 #碰撞边界余量
         near_goal_distance: 0.1
@@ -419,7 +419,7 @@ smoother_server:
 
 behavior_server:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: False
     local_costmap_topic: local_costmap/costmap_raw
     global_costmap_topic: global_costmap/costmap_raw
     local_footprint_topic: local_costmap/published_footprint

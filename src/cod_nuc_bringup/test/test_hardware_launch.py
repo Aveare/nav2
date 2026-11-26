@@ -48,6 +48,7 @@ class HardwareLaunchTest(unittest.TestCase):
                                 p = params[name][name]['ros__parameters']
                                 self.assertEqual(p['robot_base_frame'], 'base_link')
                                 self.assertEqual(p['footprint'], context.launch_configurations['footprint'])
+                                self.assertAlmostEqual(p['robot_radius'], .5)
                                 self.assertEqual(p['stvl_voxel_layer']['observation_sources'], 'livox_source')
                                 self.assertEqual(p['stvl_voxel_layer']['livox_source']['topic'], '/livox/lidar')
                             self.assertEqual(params['velocity_smoother']['ros__parameters']['max_velocity'], [.35, .35, .5])
