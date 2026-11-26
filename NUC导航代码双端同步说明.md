@@ -34,7 +34,9 @@ NUC 上原有的 `cod_navigation` 和 `cod_behavior_stack` 是分别来自旧 Gi
 
 源码同步不处理 `build`、`install`、`log`、运行日志、地图、备份或凭据，也不删除 NUC 工作区的额外文件。向运行工作区写入前必须保存被替换文件的带时间戳备份；同步完成后仅核对文件哈希和 Git 提交，不自动编译、重启建图、启动底盘或烧录固件。
 
-验证在 NUC 的 `/tmp` 独立构建目录中进行，不覆盖运行工作区的 `build` 或 `install`。首次验证由混用两种 BehaviorTree 头文件路径触发类型重定义，统一为标准包含路径后重新执行同一独立构建。
+验证在 NUC 的 `/tmp` 独立构建目录中进行，不覆盖运行工作区的 `build` 或 `install`。首次验证由混用两种 BehaviorTree 头文件路径触发类型重定义，统一为标准包含路径后重新执行同一独立构建，`cod_behavior` 编译成功。
+
+向运行工作区同步前已将被替换文件备份到 `/home/rm/cod_deploy/backups/nav2_sync_20261126_042824`。同步后逐文件 SHA-256 与 NUC 基准仓库一致。检查时 `cod-handheld-mapping.service` 在同步前后均为 `inactive`、主进程 PID 均为 0，本轮没有启动或重启建图。
 
 ## 后续固定流程
 
