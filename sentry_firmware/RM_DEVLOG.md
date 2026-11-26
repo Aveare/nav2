@@ -15,7 +15,7 @@
 | 基线身份 | 仓库内 `.agents/skills/rm-electrical-dev`(上游 basic_framework @1a136eb1,460 条;审计脚本随仓库走,见 DEV-20261116-06) |
 | 工程目标 | **当前交付目标 = 哨兵 Sentry**:`apps/sentry/` + `config/sentry_2026/`;必须显式执行 `build.ps1 sentry -Current`,哨兵烧录优先使用明确命名的 `firmware/sentry.elf`,CMake 无参数默认 infantry 仅作历史兼容(DEV-20261126-01/03) |
 | 有效配置 | 哨兵 ONE_BOARD 单板;`config/sentry_2026/config.h`(伞头 + `config_<域>.h`);装配入口 `apps/sentry/app/assembly.c`,消息合同 `apps/sentry/app/sentry_def.h`;infantry/heavy profile 仅作共享回归与兼容 |
-| 功能状态 | 哨兵底盘/三轴云台/发射/遥控/安全机制已实装;**旧 AX650 USART1 已关闭,USART1 专用于三轴编码器 VOFA JustFloat;USB CDC VCP 已接入 NV v1 导航与 RMCV `0x1021/0x0503`**。`0x1021` 当前只有大 yaw 平台 IMU,`0x0503` 只解析保存且尚未接入哨兵云台/发射控制(DEV-20261126-35);默认 `SENTRY_AUTONOMY_ENABLE=0`,只解析/测时/回传大 yaw,不驱动底盘;遥控为右杆平移、左纵杆 pitch、左下+左横杆小 yaw、其他左挡+左横杆底盘转向;大 yaw 普通挡锁机械正前、小陀螺挡做世界角速度阻尼。此前大 yaw 10 N·m 饱和/线圈过温是未关闭的历史风险,必须架空短测 |
+| 功能状态 | 哨兵底盘/三轴云台/发射/遥控/安全机制已实装;**旧 AX650 USART1 已关闭,USART1 专用于三轴编码器 VOFA JustFloat;USB CDC VCP 已接入 NV v1 导航与 RMCV `0x1021/0x0503`**。`0x1021` 当前只有大 yaw 平台 IMU,`0x0503` 只解析保存且尚未接入哨兵云台/发射控制(DEV-20261126-35);USART6 已解析 16 类裁判消息,但除热量守卫/UI 外未被哨兵消费,也未转发 NUC。SP25 敌方兵种 ID 与裁判 robot ID 是不同命名空间(DEV-20261126-36);默认 `SENTRY_AUTONOMY_ENABLE=0`,只解析/测时/回传大 yaw,不驱动底盘;遥控为右杆平移、左纵杆 pitch、左下+左横杆小 yaw、其他左挡+左横杆底盘转向;大 yaw 普通挡锁机械正前、小陀螺挡做世界角速度阻尼。此前大 yaw 10 N·m 饱和/线圈过温是未关闭的历史风险,必须架空短测 |
 | 最近验证 | **2026-11-26 NV v1 ROS↔STM32 通信(DEV-20261126-30)**:导航协议四组主机测试、chassis/fwk/AX650/profile 回归、静态门禁和 Sentry ARM 编译通过;ELF SHA-256 `832D4F6C…ADEFAA`。仓库既有 skill 快照 `LICENSE` 哈希不匹配使 baseline audit 不可靠，未冒充通过；未烧录、未做实体 USB/底盘运动验证 |
 | 当前问题 | 无(RM-001 已关闭) |
 | 下一步 | 烧录 `firmware/sentry.elf` 后保持两端驱动开关关闭,先确认测时与 `/big_yaw/joint_states`;随后架空核对正前/左移/逆时针符号及四类断流降级,验收后才允许同时打开 MCU `SENTRY_AUTONOMY_ENABLE` 与 NUC `enable_drive`;M3 整车回归和热量守卫实测仍由用户执行 |
@@ -42,11 +42,11 @@ U3/U4 已收口:组件层直达 RTOS/HAL 与具体句柄清理,IMU 增加 `ports
 | skill | rm-ec-dev v1.1 |
 | 工程源码基线 | jit-rm-1029.manifest.json(见 §0);git 为字节历史事实源 |
 | 有效配置 | ONE_BOARD;`config/sentry_2026/`;VISION_USE_VCP;USART1=云台 VOFA;AX650=OFF |
-| 功能状态 | 生效:哨兵底盘/三轴云台/发射/仲裁/看门狗/遥测、UART1 VOFA、NV v1 VCP 通信;导航驱动默认关闭;预留:超电/ist8310 |
+| 功能状态 | 生效:哨兵底盘/三轴云台/发射/仲裁/看门狗/遥测、UART1 VOFA、NV v1 VCP 通信、USART6 裁判解析;导航驱动默认关闭;裁判状态转发 NUC 未实现;预留:超电/ist8310 |
 | 最近验证 | 见 §0 |
 | 板上固件身份 | 待确认(用户烧录后回填) |
 | 当前问题 | 无 |
-| 最近开发条目 | DEV-20261126-30 |
+| 最近开发条目 | DEV-20261126-36 |
 | 下一步 | 见 §0 |
 
 ## 2. 设计与配置
@@ -4797,5 +4797,40 @@ MCU tick—ROS 时钟偏移、SP25 图像/姿态插值、频率、超时及使�
 `apps/sentry/autonomy/autonomy.c`；`test_nav_wire.py` 与 `test_rmcv_wire.py` 共 5 项通过，
 `.Doc` 链接检查和 `git diff --check` 通过。基线审计因仓库既有 skill 快照缺文件及 `LICENSE`
 哈希不匹配继续报告 snapshot corrupted，未冒充通过。未编译、未烧录、未操作实车。
+
+**AI**：OpenAI Codex（GPT-6），2026-11-26。
+
+### DEV-20261126-36｜2026-11-26｜[SENTRY] 补齐裁判系统与敌方兵种通信审计
+
+**触发与边界**。用户指出导航/自瞄通信总表遗漏 RoboMaster 裁判系统信息，尤其是敌方
+自瞄兵种。开工前再次拉取 `Aveare/nav2` 最新 `main`，本地与远端均为 `aad23e1`。
+本条只补协议审计和接口草案，不修改线上字节、ROS 消息、STM32 控制路径或配置。
+
+**审计结论**。裁判系统走 STM32 USART6，与 USB 上同样以 `0xA5` 开头的 RMCV 是两套
+独立协议。当前 `referee.c` 实际缓存 16 类命令；哨兵仅由热量守卫消费 `0x0201`、
+`0x0202`、`0x0204`、`0x0208` 的部分字段，其他信息只缓存，全部未转发 NUC。
+`0x0207` 实测弹速与 `0x0201` 本车 ID 也没有接到现有 `ax650_usb_set_*`，因此
+`0x1021.projectile_speed` 和 `robot_id` 仍为 0。
+
+**兵种命名空间**。SP25 `target_id` 来自视觉 `ArmorName + 1`：1 英雄、2 工程、
+3/4/5 步兵、6 哨兵、7 前哨站、8 基地；9 是 `not_armor`，不应作为攻击目标。
+裁判 robot ID 则以红方 `1/2/3/4/5/6/7/9`、蓝方
+`101/102/103/104/105/106/107/109` 表示各兵种。特别是 SP25 哨兵=6、裁判哨兵=7/107，
+不得按数值相等融合。当前本地 `0x0003` 只有己方 1/2/3/4/7 号及双方建筑 HP，
+没有敌方移动机器人逐车 HP，不能据此自动生成完整敌方存活或无敌列表。
+
+**文档与草案**。扩充
+`.Doc/spec/NUC-STM32导航与自瞄USB串口协议.md`，逐项列出当前解析的 16 类裁判消息、
+现有消费者、未解析命令、兵种映射、NUC 缺口和新鲜度风险；新增未实现的
+`0x1023～0x1026` 语义草案，分别承载比赛/本车状态、资源与事件、HP、位置与小地图命令，
+并要求每组携带 MCU 接收时间和有效位。`/autoaim/priority_ids` 与
+`/autoaim/invincible_ids` 当前只有 SP25 订阅者、没有 nav2 发布者，已明确登记。
+
+**验证**。以 `referee_protocol.h`、`referee.c`、`referee.h`、哨兵 `heat_guard.c`、
+SP25 `armor.hpp`、`decider.cpp`、`cod_sentry.cpp` 和 ROS bridge 为证据做静态交叉核对；
+参考 RoboMaster 官方资料页列出的 2026 通信协议 V2.0.0，但本地源码未固定官方版本号，
+比赛前仍需按正式比赛版本逐字段复核。文档链接检查、`git diff --check` 和现有协议测试
+结果见本提交验证记录。基线审计仍受仓库既有快照缺文件/哈希不匹配阻断，未冒充通过。
+未编译、未烧录、未访问实体裁判系统或 USB。
 
 **AI**：OpenAI Codex（GPT-6），2026-11-26。
