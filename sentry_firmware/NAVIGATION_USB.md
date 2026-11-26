@@ -2,8 +2,9 @@
 
 这是为本次本地接入新增、同时实现于两端的协议，不是声称 GitHub 原电控已经存在的协议。
 固件接收端在 `components/navigation` 与 `apps/sentry/autonomy`；ROS 发送端在
-`../cod_ws/src/cod_nuc_bringup/scripts/sentry_usb_bridge.py`。
-旧 `cod_serial_ul26` 的 15 字节包不能混用，不要让两个进程打开同一个 USB 口。
+`../src/cod_nuc_bringup/scripts/sentry_usb_bridge.py`。该进程同时承载自瞄 RMCV 帧，
+是 USB CDC 的唯一上位机所有者。旧 `cod_serial_ul26` 的 15 字节包不能混用，
+不要让两个进程打开同一个 USB 口。
 
 ## 帧布局
 
@@ -58,12 +59,12 @@ CRC/序号用于错误与重复检测，不是认证或任意网络传输延迟�
 
 ```bash
 source /opt/ros/humble/setup.bash
-colcon build --packages-select cod_nuc_bringup
+colcon build --packages-select rm_interfaces cod_nuc_bringup
 source install/setup.bash
 ros2 run cod_nuc_bringup sentry_usb_bridge.py --ros-args -p port:=/dev/ttyACM0
 ```
 
-此命令默认只联调通信：enable_drive=false。若设备名不固定，可把 port 换为
+此命令默认只联调通信：`enable_drive=false`、`enable_autoaim=false`。若设备名不固定，可把 port 换为
 实际 `/dev/serial/by-id/...`。当前用户必须已有串口设备访问权限。
 
 物理入口 `nuc_hardware.launch.py` 的 start_serial 现在默认 true，使用此新桥接，
@@ -78,6 +79,9 @@ ros2 launch cod_nuc_bringup nuc_hardware.launch.py \
 只有实际完成内部外参核对后才设置上面的 confirmed。默认不启动导航动作。
 正式低速测试还需实测 footprint、start_navigation:=true、enable_drive:=true，
 并按 README 使能电控导航。不要在通信尚未验收时开启这两个驱动开关。
+
+自瞄 `0x1021/0x0503` 字段、ROS 话题和 `enable_autoaim` 开关见
+`AUTOAIM_USB_PROTOCOL.md`。导航与自瞄必须共用此网关，不得另起自瞄串口进程。
 
 检查正前速度、左移速度、逆时针旋转，以及平台零位/正转符号；随后分别断开
 cmd_vel、Odometry、角度反馈、USB，确认进入原零力安全输出。每项实机结果由用户记录。

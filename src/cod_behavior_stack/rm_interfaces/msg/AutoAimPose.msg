@@ -1,0 +1,9 @@
+std_msgs/Header header
+uint8 sequence
+uint32 mcu_sample_time_ms
+float32 yaw
+float32 pitch
+float32 roll
+float32 projectile_speed
+uint8 mode
+uint8 robot_id

@@ -7,10 +7,12 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.time import Time
+from rm_interfaces.msg import AutoAimTarget
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 from sentry_usb_bridge import SentryUSBBridge
 from nav_wire import Parser, Frame, COMMAND, FEEDBACK, SYNC_RESPONSE
+from rmcv_wire import Parser as RMCVParser, PoseFrame, TargetFrame
 
 
 class USBBridgeTest(unittest.TestCase):
@@ -21,6 +23,7 @@ class USBBridgeTest(unittest.TestCase):
         rclpy.init(args=['--ros-args', '-p', 'port:='+os.ttyname(slave)])
         self.node = SentryUSBBridge()
         self.parser = Parser()
+        self.rmcv_parser = RMCVParser()
 
     def tearDown(self):
         self.node.close()
@@ -29,9 +32,12 @@ class USBBridgeTest(unittest.TestCase):
         os.close(self.master)
         os.close(self.slave)
 
-    def read_frames(self):
+    def read_bytes(self):
         time.sleep(.002)
-        return self.parser.feed(os.read(self.master, 4096))
+        return os.read(self.master, 4096)
+
+    def read_frames(self):
+        return self.parser.feed(self.read_bytes())
 
     def ready(self):
         self.node.enable_drive = True
@@ -82,6 +88,48 @@ class USBBridgeTest(unittest.TestCase):
         self.assertLess(abs(self.node.last_joint_stamp-now), 30000000)
         self.node.feedback(Frame(FEEDBACK, 2, 100, (0.0, 0.0, 0.0), 1), now, time.monotonic())
         self.assertIsNone(self.node.clock.offset_ns)  # MCU 重启后不能复用旧偏移。
+
+    def test_autoaim_target_gate_timeout_and_fragmented_pose(self):
+        self.node.poll()
+        initial = self.read_bytes()
+        initial_targets = [frame for frame in self.rmcv_parser.feed(initial)
+                           if isinstance(frame, TargetFrame)]
+        self.assertEqual(initial_targets[-1].target_id, 0)
+
+        self.node.enable_autoaim = True
+        target = AutoAimTarget()
+        target.yaw, target.pitch = 30.0, -5.0
+        target.yaw_speed, target.pitch_speed = .25, -.125
+        target.yaw_acc, target.pitch_acc = 1.0, -2.0
+        target.distance, target.shoot, target.target_id = 4.5, 1, 3
+        self.node.receive_target(target)
+        time.sleep(.011)
+        self.node.poll()
+        targets = [frame for frame in self.rmcv_parser.feed(self.read_bytes())
+                   if isinstance(frame, TargetFrame)]
+        self.assertEqual(targets[-1].target_id, 3)
+        self.assertEqual(targets[-1].shoot, 1)
+
+        self.node.target_at -= 1.0
+        time.sleep(.011)
+        self.node.poll()
+        targets = [frame for frame in self.rmcv_parser.feed(self.read_bytes())
+                   if isinstance(frame, TargetFrame)]
+        self.assertEqual(targets[-1].target_id, 0)
+        self.assertEqual(targets[-1].shoot, 0)
+
+        sample_ms = 1000
+        now_ns = self.node.get_clock().now().nanoseconds
+        self.node.clock.offset_ns = now_ns - sample_ms * 1000000
+        self.node.clock.updated = time.monotonic()
+        pose = PoseFrame(7, sample_ms, 10.0, -2.0, .5, 15.5, 1, 107).encode()
+        os.write(self.master, pose[:11])
+        self.node.poll()
+        self.assertIsNone(self.node.last_pose_stamp)
+        os.write(self.master, pose[11:])
+        self.node.poll()
+        self.assertEqual(self.node.last_pose_sample_ms, sample_ms)
+        self.assertEqual(self.node.last_pose_stamp, now_ns)
 
 
 if __name__ == '__main__':

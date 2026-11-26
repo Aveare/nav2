@@ -9,11 +9,14 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Point2d.msg"
   "msg/JudgeSystemData.msg"
   "msg/SerialReceiveData.msg"
+  "msg/AutoAimTarget.msg"
+  "msg/AutoAimPose.msg"
   "srv/SetMode.srv"
   DEPENDENCIES
     std_msgs

@@ -12,7 +12,7 @@
 #include "robot_cmd_internal.h"
 #include "remote_control.h"
 #include "ins_task.h"
-#include "ax650_uart1.h"
+#include "ax650_usb.h"
 #include "general_def.h"
 #include "can_port.h"
 #include "motor_def.h"
@@ -42,8 +42,8 @@ void cmd_remote_set(void)
     {
         yaw_stick_active = 0;
         const uint8_t auto_enabled = !REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right);
-        ax650_uart1_state_t vision;
-        ax650_uart1_get_state(&vision);
+        ax650_usb_state_t vision;
+        ax650_usb_get_state(&vision);
         const uint8_t vision_valid = robot_state == ROBOT_STATUS_READY && remote_control_is_online() &&
                                      auto_enabled && vision.command_valid &&
                                      vision.command.target_id != 0u;

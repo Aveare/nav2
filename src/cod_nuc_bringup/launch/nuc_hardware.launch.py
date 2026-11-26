@@ -79,7 +79,8 @@ def setup(context):
             'use_sim_time': 'false', 'use_composition': 'False'}))
     if enabled('start_serial'):
         nodes.append(Node(package='cod_nuc_bringup', executable='sentry_usb_bridge.py', output='screen',
-                          parameters=[{'port': value('serial_port'), 'enable_drive': enabled('enable_drive')}]))
+                          parameters=[{'port': value('serial_port'), 'enable_drive': enabled('enable_drive'),
+                                       'enable_autoaim': enabled('enable_autoaim')}]))
     return nodes
 
 
@@ -92,6 +93,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_serial', default_value='true'),
         DeclareLaunchArgument('serial_port', default_value='/dev/ttyACM0'),
         DeclareLaunchArgument('enable_drive', default_value='false'),
+        DeclareLaunchArgument('enable_autoaim', default_value='false'),
         DeclareLaunchArgument('imu_extrinsics_confirmed', default_value='false'),
         DeclareLaunchArgument('footprint', default_value='[]'),
         DeclareLaunchArgument('map', default_value=os.path.join(cod, 'maps', 'rmul2026.yaml')),

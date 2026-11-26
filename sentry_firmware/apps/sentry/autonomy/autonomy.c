@@ -8,6 +8,7 @@
 #include "autonomy.h"
 #include "config.h"
 #include "nav_protocol.h"
+#include "ax650_usb.h"
 #include "usb_port.h"
 #include "kernel.h"
 #include "msg.h"
@@ -35,7 +36,9 @@ static sentry_gimbal_feed_t gimbal_feed;
 static uint32_t feedback_last_ms, feedback_sequence;
 static uint64_t feedback_last_sample;
 
-static void autonomy_usb_receive(uint32_t length)
+_Static_assert(AX650_POSE_FRAME_SIZE <= NAV_FRAME_SIZE, "shared USB TX buffer is too small");
+
+static void autonomy_usb_receive(uint16_t length)
 {
     uint8_t next = (uint8_t)((rx_head + 1u) % 8u);
     if (length > 64u || next == rx_tail || usb_rx == NULL)
@@ -64,6 +67,7 @@ void autonomy_init(void)
     memset(&parser, 0, sizeof(parser));
     has_command = 0u;
     rx_head = rx_tail = 0u;
+    ax650_usb_init();
     usb_rx = usb_init((usb_init_config_t){.tx_cbk = NULL, .rx_cbk = autonomy_usb_receive});
     gimbal_feed_sub = msg_sub("gimbal_feed", sizeof(sentry_gimbal_feed_t));
 }
@@ -82,6 +86,9 @@ void autonomy_task(void)
         slot = rx_slots[rx_tail];
         rx_tail = (uint8_t)((rx_tail + 1u) % 8u);
         kernel_exit_critical(saved);
+#if AX650_USB_ENABLE
+        ax650_usb_feed(slot.bytes, slot.length, slot.received_ms);
+#endif
         for (unsigned i = 0; i < slot.length; ++i)
         {
             nav_frame_t frame;
@@ -131,6 +138,14 @@ void autonomy_task(void)
             ++feedback_sequence;
         }
     }
+#if AX650_USB_ENABLE
+    if (!usb_is_transmitting())
+    {
+        const size_t size = ax650_usb_prepare_pose(tx_buffer, sizeof(tx_buffer), now);
+        if (size != 0u)
+            (void)usb_try_transmit(tx_buffer, (uint16_t)size);
+    }
+#endif
 }
 
 int autonomy_get_command(sentry_auto_cmd_t *command)

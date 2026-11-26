@@ -1,16 +1,18 @@
 /**
  * @file    config_ax650.h
- * @brief   哨兵 AX650 自瞄链路:USART1 / 目标整形 / 自瞄辅助参数
+ * @brief   哨兵 AX650 自瞄链路:USB CDC / 目标整形 / 自瞄辅助参数
  * @layer   CONFIG
  * @author  小猫大王
  * @note    复用 components/ax650 的 0x0503 协议;视觉端输出世界系 yaw/pitch 目标。
+ *          USB CDC 与导航共用，由 autonomy 作为唯一端口所有者统一分流。
  */
 #pragma once
 
-#define AX650_UART1_ENABLE 1
-/* [配置] USART1 编译期所有者:1=AX650 自瞄;0=释放给底盘 VOFA(互斥检查在伞头)。 */
+#define AX650_USB_ENABLE   1
+#define AX650_UART1_ENABLE 0
+/* [配置] 自瞄改走 USB CDC；USART1 释放给调试，禁止两个 AX650 传输同时启用。 */
 #ifndef AX650_UART1_RX_ENABLE
-#define AX650_UART1_RX_ENABLE 1
+#define AX650_UART1_RX_ENABLE 0
 #endif
 #define AX650_UART1_BAUD 921600u      /* [协议] USART1 波特率,8E1 */
 #define AX650_POSE_PERIOD_MS 10u      /* [协议] 姿态上报周期,ms(100Hz) */

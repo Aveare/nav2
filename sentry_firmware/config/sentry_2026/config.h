@@ -32,6 +32,10 @@
 #error "UART1 owner conflict: AX650 and debug VOFA must be mutually exclusive"
 #endif
 
+#if AX650_USB_ENABLE && AX650_UART1_ENABLE
+#error "AX650 USB CDC and USART1 transports must be mutually exclusive"
+#endif
+
 /* 下行接收不能脱离链路总开关。 */
 #if AX650_UART1_RX_ENABLE && !AX650_UART1_ENABLE
 #error "AX650_UART1_RX_ENABLE=1 需要先开启 AX650_UART1_ENABLE"

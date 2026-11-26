@@ -1,0 +1,10 @@
+std_msgs/Header header
+float32 yaw
+float32 pitch
+float32 yaw_speed
+float32 pitch_speed
+float32 yaw_acc
+float32 pitch_acc
+float32 distance
+uint8 shoot
+uint8 target_id

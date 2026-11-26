@@ -19,7 +19,7 @@ robot_status_e robot_state; // 机器人整体工作状态
 // module
 #include "remote_control.h"
 #include "ins_task.h"
-#include "ax650_uart1.h"
+#include "ax650_usb.h"
 #include "msg.h"
 #include "general_def.h"
 #include "can_port.h"
@@ -161,10 +161,10 @@ void cmd_task(void)
 
     /* 4. 输入源与 AX650 模式 */
     cmd_update_input_source();
-#if AX650_UART1_ENABLE
-    ax650_uart1_set_mode(REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left)
-                             ? AX650_AUTO_AIM_MODE
-                             : AX650_TX_MODE);
+#if AX650_USB_ENABLE
+    ax650_usb_set_mode(REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left)
+                           ? AX650_AUTO_AIM_MODE
+                           : AX650_TX_MODE);
 #endif
     if (REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left))
         cmd_remote_set();

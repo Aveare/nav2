@@ -3820,3 +3820,17 @@ heat_limit=320)。若直接信裁判值,允许功率会比规则宽 30W。
 - Git：目录无.git，无commit/branch/push；用户明确禁止远端修改，未执行任何GitHub写入。
 - 后续：安装本机ARM构建依赖后编译哨兵，用户架空测试方向和300ms失联输出；
   核实MID-360S内部外参与实际footprint，再按README低速放行。
+
+## DEV-20261126-LOCAL-AUTOAIM-USB — 自瞄迁移到导航共享 USB CDC
+
+- 授权与范围：用户明确要求直接实现 USB 虚拟串口发送接收并启用框架现有 CDC，属于新增组件、消息字段和调用链的结构改动。本次只修改源码、测试和文档；未烧录、未连接实体云台、未发送实车运动或发射指令。
+- 架构：保留现有 AX650/RMCV `0x1021` 姿态上行和 `0x0503` 目标下行字节协议。`autonomy` 继续作为 STM32 唯一 USB 所有者，同一 CDC 字节流同时交给 `NV` 与 RMCV 两个 CRC 流解析器；NUC 端由 `sentry_usb_bridge.py` 独占设备，禁止导航与自瞄分别打开 `/dev/ttyACM*`。
+- 固件：新增 `components/ax650/ax650_usb.c/.h`，接收端保存最近有效目标及 100 ms 超时，发送端保存 INS 四元数快照并以 100 Hz 准备姿态帧。INS 不直接操作 USB；`autonomy_task()` 只在 CDC 空闲时发送。自瞄控制从 USART1 状态切到 USB 状态，USART1 AX650 开关关闭；USB 回调参数按真实接口从 `uint32_t` 修正为 `uint16_t`。
+- ROS 2：新增 `rm_interfaces/AutoAimTarget` 与 `AutoAimPose`。网关订阅 `/autoaim/target`、发布 `/autoaim/pose`，100 Hz 发送目标或显式无目标帧；新增 `enable_autoaim=false` 和 `autoaim_timeout=0.1` 安全门。姿态时间戳复用 `NV` 测时映射，不用 USB 到达时刻冒充采样时刻。
+- 安全边界：默认 `enable_drive=false`、`enable_autoaim=false`、`SENTRY_AUTONOMY_ENABLE=0`。即使 USB 收到目标，固件仍要求 READY、遥控在线和自瞄状态才使用角度；`shoot` 只解析，不接拨盘。弹速与 robot_id 尚未接裁判数据，默认上报 0。
+- 主机验证：`test_rmcv_wire.py` 2 项通过；`cod_nuc_bringup` 隔离构建后的 24 项 ROS 2 测试通过，其中 USB 伪终端 3 项覆盖使能、超时、无目标和分片姿态。C 集成测试在 `-O0`、`-Ofast -flto` 下通过，`NV`、`0x0503`、`0x1021` 与 Python 黄金帧逐字节一致；13 个相关生产 C 文件通过主机语法检查。
+- ARM 验证：GNU Arm Embedded 14.3.1，STM32F407 Debug 全量编译链接通过；FLASH 119916 B/1 MiB（11.44%），RAM 73840 B/128 KiB（56.34%），CCMRAM 54944 B/64 KiB（83.84%）。仅见工程既有 gimbal 未使用变量、newlib syscall 桩和 CMake COMMENT 警告。
+- 审计限制：整理副本不含 `.agents/skills/rm-electrical-dev/scripts/audit_baseline.py` 与 `tools/`，因此无法运行原工程基线审计和命名/宏闸门，未声称这些检查通过。`git -c core.whitespace=cr-at-eol diff --check` 用于该 CRLF 副本。
+- 相关文档：`AUTOAIM_USB_PROTOCOL.md` 更新为已实现状态并给出 ROS 话题、启动命令、默认门控和联调顺序；`NAVIGATION_USB.md` 明确共享网关；根 `README.md` 更新验证状态。
+- 未验证：真实 USB 枚举、100 Hz 周期抖动和丢包、云台零位/正方向、遥控与 USB 失联、弹速/机器人 ID、发射保护及比赛环境。主机测试和 ARM 编译不等于实车验收。
+- AI：Codex（GPT-6），2026-11-26。

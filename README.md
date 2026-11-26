@@ -14,8 +14,9 @@
 ## 当前验证状态（2026-11-26）
 
 - 小电脑上 `cod_bringup`、`small_point_lio`、`cod_nuc_bringup` 编译成功。
-- 坐标、时间戳和 USB 伪终端测试通过：15 个 pytest 用例；colcon 含汇总项共 20 项，0 失败。
-- 电控通信主机测试在 GCC `-O0` 和 `-Ofast -flto` 下通过，C/Python 协议字节一致。
+- `cod_nuc_bringup` 的 24 项 ROS 2 测试通过；包含坐标、硬件 launch、时间戳、RMCV 和 USB 伪终端收发。
+- 电控通信主机测试在 GCC `-O0` 和 `-Ofast -flto` 下通过，`NV`、`0x0503`、`0x1021` 的 C/Python 协议字节一致。
+- STM32F407 ARM Debug 全量编译与链接通过：FLASH 11.44%、RAM 56.34%、CCMRAM 83.84%。
 - 独立域 43 的三点 loopback 导航通过，终点误差约 0.147 m，速度输出未超过首测限值。
 - 实车参数已同步并安装到小电脑；这不表示已经完成实车运行验证。
 
@@ -27,9 +28,9 @@
 map → odom → base_link → big_yaw_link → livox_frame
 ```
 
-倒装雷达安装为 XYZ=(-0.053, 0, 0.474) m、roll=π。导航每轴限速 0.35 m/s、角速度上限 0.5 rad/s；斜向合速度可达约 0.50 m/s。导航 USB 协议、采样时间和失效处理见 `sentry_firmware/NAVIGATION_USB.md`、`src/cod_nuc_bringup/HARDWARE_FRAMES.md`；自瞄迁移到 USB CDC 时的收发字段和单串口网关约束见 `sentry_firmware/AUTOAIM_USB_PROTOCOL.md`。
+倒装雷达安装为 XYZ=(-0.053, 0, 0.474) m、roll=π。导航每轴限速 0.35 m/s、角速度上限 0.5 rad/s；斜向合速度可达约 0.50 m/s。导航 USB 协议、采样时间和失效处理见 `sentry_firmware/NAVIGATION_USB.md`、`src/cod_nuc_bringup/HARDWARE_FRAMES.md`；自瞄 USB CDC 的收发字段、ROS 话题和单串口网关约束见 `sentry_firmware/AUTOAIM_USB_PROTOCOL.md`。
 
-默认 `start_navigation=false`、`enable_drive=false`，电控 `SENTRY_AUTONOMY_ENABLE=0`。真实 footprint 与 MID-360S 内部外参尚未核实，入口保留校验门槛。尚未完成 ARM 编译、烧录、实车延迟/滑移/制动与平台动态补偿验证。
+默认 `start_navigation=false`、`enable_drive=false`、`enable_autoaim=false`，电控 `SENTRY_AUTONOMY_ENABLE=0`。真实 footprint 与 MID-360S 内部外参尚未核实，入口保留校验门槛。ARM 编译已完成，但尚未烧录，也未完成实车延迟/滑移/制动、平台动态补偿和自瞄云台方向验证。
 
 ## 同步规则
 
