@@ -104,6 +104,7 @@ static float gimbal_pitch_joint_deg(void)
     return joint_rad * FW_RAD_TO_DEG;
 }
 
+#if SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE
 /**
  * @brief 使能大 yaw 的 DM 反馈，同时强制 MIT 控制量为零
  * @note 安全:反馈-only 模式不得给位置、速度或力矩控制量。
@@ -118,6 +119,7 @@ static void gimbal_enable_big_yaw_feedback_only(void)
     dm_motor_set_mit_torque(big_yaw_motor, 0.0f);
     big_yaw_torque_nm = 0.0f;
 }
+#endif
 
 /* 世界 yaw(W_big)与角速度:按 IMU 安装位置扣除小 yaw 分量 */
 static void gimbal_big_yaw_world(float *world_deg, float *world_rate_deg_s, float imu_yaw_deg,

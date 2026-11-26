@@ -50,8 +50,8 @@ CAN/USB ISR 采样使用 FromISR tick API；大 yaw 角度与其采样时间在�
 STM32 在 `SENTRY_AUTONOMY_ENABLE=0` 时仍以 20 ms 周期发送新鲜的大 yaw 角度，
 但读取导航命令的出口会把整帧速度清零并返回无效，因此不会把 USB 速度交给底盘 PID。
 角度 CAN 采样时间不更新时停止回传，禁止把旧角度包装成新数据。
-反馈-only 固件同时设置 `SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=1`：大 yaw DM 保持
-通信使能，但 MIT 位置/速度增益和力矩均为 0，大 yaw PID、测试模式和标定扫动均不输出。
+当前固件设置 `SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=0`，恢复原大 yaw 角度环、
+速度环和 MIT 力矩输出；`SENTRY_AUTONOMY_ENABLE=0` 仍独立禁止 USB 导航速度接管底盘。
 
 ROS 桥接每 20 ms 发送速度，仅当 cmd_vel、底盘 Odometry、角度反馈在 0.2 s 内更新，
 Odometry 采样时间也新鲜、测时有效且 enable_drive=true 时标有效。失效则发零速度无效帧。

@@ -30,8 +30,9 @@
 `SENTRY_AUTONOMY_ENABLE=0`：USB 以 50 Hz 持续回传新鲜的大 yaw CAN 角度，
 但 `autonomy_get_command()` 会把已解析的导航速度整帧清零并返回无效，导航命令
 不能进入底盘 PID。若大 yaw CAN 反馈停止，固件不会用旧角度伪造新采样时间。
-`SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=1` 会使能大 yaw DM 通信，但把 MIT 的
-位置增益、速度增益和力矩保持为 0；遥控、导航和标定测试都不能触发大 yaw PID。
+`SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE=0` 已恢复原大 yaw 角度环和速度环参数。
+这不改变 `SENTRY_AUTONOMY_ENABLE=0` 的底盘导航禁用状态；大 yaw PID 只在原云台
+安全仲裁允许、命令未断流且电机在线时输出。
 ROS 桥接 `enable_drive=false`：继续回传角度与测时，速度命令标记为无效。
 通信联调不需要解除这两个开关。原电控的手动功能不是被这两个开关禁用的。
 

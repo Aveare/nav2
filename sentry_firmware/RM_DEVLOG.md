@@ -21,6 +21,9 @@
 力矩为零，并从编译期隔离大 yaw PID、测试动作和标定扫动。详见
 DEV-20261126-LOCAL-BIG-YAW-ENABLE。
 
+随后按用户要求恢复大 yaw 原 PID 参数，feedback-only 门控改为 0；底盘导航接管
+仍保持禁用。详见 DEV-20261126-LOCAL-BIG-YAW-PID。
+
 ## 0. AI 冷启动摘要
 
 <!-- AI 会话开始时只读本节即可接手;只放结论与链接,证据留在对应条目。人工接手同样建议先读这里。 -->
@@ -3863,4 +3866,16 @@ heat_limit=320)。若直接信裁判值,允许功率会比规则宽 30W。
 - 验证：13 个相关生产 C 文件通过主机语法检查；feedback-only/drive-enabled 在 `-O0`、`-Ofast -flto` 四组协议测试通过。GNU Arm Embedded 14.3.1 全量编译链接通过，FLASH 118344 B（11.29%）、RAM 73832 B（56.33%）、CCMRAM 54944 B（83.84%）。
 - 固件：未跟踪的 `firmware/current.elf` SHA256 为 `69F61806D192FF1FA734AEEC8C773D17F8663ACF8277438D09AD352C15CD803A`。
 - 边界：本次只改源码、配置和文档并完成 ARM 编译；不烧录、不让实车电机产生控制力矩。
+- AI：OpenAI Codex，2026-11-26。
+
+## DEV-20261126-LOCAL-BIG-YAW-PID — 恢复大 yaw 原 PID 参数
+
+- 目标：按用户要求在 DM 电机使能基础上恢复此前的大 yaw 串级 PID，不重新整定参数。
+- 门控：`SENTRY_BIG_YAW_FEEDBACK_ONLY_ENABLE` 由 1 改为 0，重新编译角度环、速度环、MIT 力矩和原标定/测试分支。
+- 角度环：Kp=12.0 1/s、Ki=0、Kd=0、死区=1.0 deg、速度参考限幅=240 deg/s、积分限幅=0。
+- 速度环：Kp=0.063 N·m/(deg/s)、Ki=0.0105 N·m/deg、Kd=0、积分限幅=1.2 N·m、输出限幅=10 N·m、输出低通 RC=0.03 s。
+- 独立安全门：`SENTRY_AUTONOMY_ENABLE=0` 保持不变，USB 导航速度仍在出口清零，不能接管底盘 PID。
+- 验证：13 个相关生产 C 文件通过语法检查；feedback-only/drive-enabled 在 `-O0`、`-Ofast -flto` 四组协议测试通过。GNU Arm Embedded 14.3.1 全量编译链接通过，FLASH 119916 B（11.44%）、RAM 73840 B（56.34%）、CCMRAM 54944 B（83.84%）。
+- 固件：未跟踪的 `firmware/current.elf` SHA256 为 `7CAB5F1C3976264014F73977444C007703DFE55B609E922ACDC3835C73B9C451`。
+- 边界：已完成主机测试和 ARM 编译；不烧录、不启动实体电机。
 - AI：OpenAI Codex，2026-11-26。
