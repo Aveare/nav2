@@ -32,6 +32,8 @@ map → odom → base_link → big_yaw_link → livox_frame
 
 倒装雷达安装为 XYZ=(-0.053, 0, 0.474) m、roll=π。导航每轴限速 0.35 m/s、角速度上限 0.5 rad/s；斜向合速度可达约 0.50 m/s。导航 USB 协议、采样时间和失效处理见 `sentry_firmware/NAVIGATION_USB.md`、`src/cod_nuc_bringup/HARDWARE_FRAMES.md`；自瞄 USB CDC 的收发字段、ROS 话题和单串口网关约束见 `sentry_firmware/AUTOAIM_USB_PROTOCOL.md`。
 
+现场地图中心点的首次记录、按地图分别保存和每日 RViz 显示流程见 [现场中心点工具](src/cod_nuc_bringup/tools/center_point/README.md)。该工具只发布 Marker 和中心位姿，不会发送导航目标或速度。
+
 默认 `start_navigation=false`、`enable_drive=false`、`enable_autoaim=false`，电控 `SENTRY_AUTONOMY_ENABLE=0`。真实 footprint 与 MID-360S 内部外参尚未核实，入口保留校验门槛。ARM 编译已完成，但尚未烧录，也未完成实车延迟/滑移/制动、平台动态补偿和自瞄云台方向验证。
 
 ## 同步规则
