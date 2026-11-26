@@ -5,12 +5,28 @@
 - 日期：2026-11-26
 - 云端仓库：`https://github.com/Aveare/nav2.git`
 - 本地分支：`main`
-- NUC 基准仓库：`/home/rm/nav2`
+- NUC 本轮核对快照：`/home/rm/nav2`（后续不直接连接 GitHub）
 - NUC 运行工作区：`/home/rm/cod_ws`
 
 同步前先获取并检查了 `origin/main`。本地以仅快进方式从旧提交前进到 `f898bed`，阅读新增提交后再开始处理本轮差异；同步流程规则随后提交为 `5f4bd13`。
 
-NUC 上原有的 `cod_navigation` 和 `cod_behavior_stack` 是分别来自旧 Gitee 上游的独立仓库，并含有未提交的现场改动，因此没有对它们执行强制拉取或整目录覆盖。本轮在 `/home/rm/nav2` 新建独立基准仓库，用它记录与 GitHub 完全一致的提交，并逐个文件核对运行工作区。
+NUC 上原有的 `cod_navigation` 和 `cod_behavior_stack` 是分别来自旧 Gitee 上游的独立仓库，并含有未提交的现场改动，因此没有对它们执行强制拉取或整目录覆盖。本轮曾在 `/home/rm/nav2` 建立核对快照并逐个文件比较运行工作区；后续按照用户确认的新流程，不再由 NUC 直接获取或推送 GitHub。
+
+## 固定同步方向
+
+NUC 现场源码是硬件调试改动的采集端，本地仓库是唯一 GitHub 操作端。同步链路固定为：
+
+```text
+NUC /home/rm/cod_ws
+        │ SSH 下载并核对
+        ▼
+本地 D:\BaiduNetdiskDownload\Nav\nav2
+        │ fetch / pull / review / Markdown / commit / push
+        ▼
+GitHub Aveare/nav2
+```
+
+NUC 不执行面向 GitHub 的 `git fetch`、`git pull` 或 `git push`。需要将本地修复部署回 NUC 时，使用 SSH 对明确文件做备份、传输和哈希核对，不把部署解释为 NUC 与 GitHub 的直接同步。
 
 ## 差异处理
 
@@ -44,5 +60,5 @@ NUC 上原有的 `cod_navigation` 和 `cod_behavior_stack` 是分别来自旧 Gi
 2. 使用 `git pull --ff-only origin main` 拉取最新代码，并阅读与待改模块相关的变更。
 3. 修改代码时同时新增或更新对应的 Markdown 说明，并完成适合当前风险的验证。
 4. 提交并推送到 `origin/main`，确认本地 `HEAD` 与远端 `origin/main` 一致。
-5. 在 NUC 基准仓库仅快进拉取同一提交，再逐项比较并备份运行工作区的差异。
-6. 只有在明确需要部署时才复制对应的云端跟踪文件；编译、重启、实车启动和烧录均作为独立操作处理。
+5. NUC 产生新改动时，通过 SSH 将明确文件下载到本地仓库，再从第 1 步开始处理；NUC 不直接连接 GitHub。
+6. 只有在明确需要部署时才通过 SSH 把对应文件传回 NUC，写入前逐项比较并备份；编译、重启、实车启动和烧录均作为独立操作处理。
