@@ -79,7 +79,7 @@ void cmd_remote_set(void)
                              : CHASSIS_ROTATE_SPEED * turn / RC_STICK_FULL_SCALE;
     }
 
-    /* 拨轮扳机:进入触发区开摩擦轮;短拨单发,长按连发。 */
+    /* 左下挡预开摩擦轮;拨轮短拨单发、长按连发。其他挡位拨轮触发时开摩擦轮。 */
     shoot_cmd.shoot_mode = SHOOT_ON;
     shoot_cmd.shoot_rate = cmd_fire_tier_rate();
     shoot_cmd.fire_tier = cmd_fire_tier_get();
@@ -91,7 +91,9 @@ void cmd_remote_set(void)
         const uint8_t in_zone = dial <= SHOOT_DIAL_TRIGGER_ZONE;
         const uint8_t released = dial > SHOOT_DIAL_TRIGGER_RELEASE;
 
-        shoot_cmd.friction_mode = in_zone ? FRICTION_ON : FRICTION_OFF;
+        const uint8_t loader_armed =
+            REMOTE_RC_SWITCH_IS_DOWN(rc_data[RC_SLOT_CURRENT].rc.switch_left);
+        shoot_cmd.friction_mode = (loader_armed || in_zone) ? FRICTION_ON : FRICTION_OFF;
         if (in_zone && !dial_in_trigger)
         {
             dial_in_trigger = 1u;

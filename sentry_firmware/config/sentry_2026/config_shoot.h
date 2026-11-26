@@ -48,10 +48,22 @@
 #define LOADER_JAM_HOLD_MS 500.0f  /* [待实测] 堵转持续判定,ms */
 #define LOADER_BACKOFF_EN 0        /* [配置] 自动退弹开关,0=锁存等回中 */
 
+/* ---------------- 台架整定(默认关) ---------------- */
+
+#define LOADER_BENCH_ENABLE 0
+/* [配置] 1 = 拨盘台架整定模式:旁路摩擦轮互锁(shoot_friction_ready 直接放行),连发改用
+ * LOADER_BENCH_REF_DEG_S 固定转速,单发/三发也不再等待摩擦轮到速。
+ * 用途:2026-11-26 实车只有一个摩擦轮转(FrictionReady 恒不通过),拨盘无法整定 PID。
+ * **风险:互锁失效。只允许空盘/架空;带弹或上场固件必须置 0 后重新编译。** */
+
+#define LOADER_BENCH_REF_DEG_S 3000.0f
+/* [调试] 台架连发拨盘转速,电机轴 deg/s ≈ 输出轴 83RPM(÷36)。
+ * 取 3000:肉眼能数清转动、又能暴露低速爬行;更高空盘看不出爬行,更低听不清启停。 */
+
 /* ---------------- 电机 ID ---------------- */
 
-#define SHOOT_FRICTION_ID_L 1 /* [配置] 左摩擦轮 M3508,CAN2 ESC1 */
-#define SHOOT_FRICTION_ID_R 2 /* [配置] 右摩擦轮 M3508,CAN2 ESC2 */
+#define SHOOT_FRICTION_ID_L 1 /* [实测 2026-11-26] 左摩擦轮 M3508,CAN2 ESC1 */
+#define SHOOT_FRICTION_ID_R 2 /* [配置] 右摩擦轮 M3508,CAN2 ESC2(实车该电调当前无反馈,待硬件排查) */
 #define LOADER_ID 3           /* [配置] 拨盘 M2006,CAN2 ESC3 */
 
 /* ---------------- PID ---------------- */

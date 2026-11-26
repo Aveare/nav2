@@ -198,11 +198,16 @@ void chassis_task(void)
         if (dt_ms > 0.0f && dt_ms <= 100.0f)
         {
             float dt_sec = dt_ms * 0.001f;
-            float nav_accel = SENTRY_NAVIGATION_ACCEL_MM_S2;
-            chassis_vx_ramp = chassis_ramp_to(chassis_vx_ramp, chassis_cmd_recv.vx,
-                                              chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION ? nav_accel : CHASSIS_VX_RAMP, dt_sec);
-            chassis_vy_ramp = chassis_ramp_to(chassis_vy_ramp, chassis_cmd_recv.vy,
-                                              chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION ? nav_accel : CHASSIS_VY_RAMP, dt_sec);
+            const float accel = chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION
+                                    ? SENTRY_NAVIGATION_ACCEL_MM_S2
+                                    : CHASSIS_VX_RAMP;
+            const float lateral_accel = chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION
+                                            ? SENTRY_NAVIGATION_ACCEL_MM_S2
+                                            : CHASSIS_VY_RAMP;
+            chassis_vx_ramp =
+                chassis_ramp_to(chassis_vx_ramp, chassis_cmd_recv.vx, accel, dt_sec);
+            chassis_vy_ramp =
+                chassis_ramp_to(chassis_vy_ramp, chassis_cmd_recv.vy, lateral_accel, dt_sec);
         }
     }
 
@@ -224,8 +229,9 @@ void chassis_task(void)
 
     /* 6. 云台系速度旋转到底盘系 */
     {
-        const float theta = chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION ? 0.0f :
-                            chassis_cmd_recv.offset_angle * FW_DEG_TO_RAD;
+        const float theta = chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION
+                                ? 0.0f
+                                : chassis_cmd_recv.offset_angle * FW_DEG_TO_RAD;
         const float ct = cosf(theta);
         const float st = sinf(theta);
         chassis_vx = chassis_vx_ramp * ct + chassis_vy_ramp * st;

@@ -43,7 +43,7 @@
 | Sentry 大 yaw 不动/过温/正前不准 | `apps/sentry/gimbal/gimbal.c` + `gimbal_control.c` + `config/sentry_2026/config_gimbal.h` | `gimbal_big_yaw_step()`、`SENTRY_BIG_YAW_*`、DM 状态/温度 |
 | Sentry 小 yaw/pitch 方向或限位不对 | `apps/sentry/gimbal/gimbal.c` | `gimbal_small_yaw_step()`、`gimbal_pitch_step()`、ECD 27、相对 ±20° |
 | Sentry 遥控映射不对 | `apps/sentry/cmd/cmd_remote.c` / `cmd_kbm.c` | `CHASSIS_RC_CONTROL`、`small_yaw_rate_deg_s` |
-| Sentry USART1 VOFA / VCP 无数据 | `apps/sentry/gimbal/gimbal.c` + `config/sentry_2026/config_board.h` | `GIMBAL_VOFA_UART1_ENABLE`、`VISION_USE_VCP`；两条物理链路分离 |
+| Sentry USART1 VOFA / VCP 无数据 | `apps/sentry/gimbal/gimbal.c` + `apps/sentry/autonomy/autonomy.c` + `config/sentry_2026/config_board.h` | `GIMBAL_VOFA_UART1_ENABLE`、`VISION_USE_VCP`、`autonomy_usb_receive()`；两条物理链路分离 |
 
 ## 2. 调用链速查
 
@@ -62,7 +62,7 @@
 | `robot_task_start_robot` | 200Hz | `robot_task()` → `cmd_task()` + `chassis_task()`；`kick(ROBOT)` |
 | `robot_task_start_ui` | 可选 | `referee_ui_task_init()` 后 `referee_ui_task()`；未注册必活 |
 
-**串口归属**：Sentry 当前为 USART1 = 三轴编码器 VOFA、USB CDC VCP = 独立上位机物理链路、
+**串口归属**：Sentry 当前为 USART1 = 三轴编码器 VOFA、USB CDC VCP = NV v1 ROS 导航链路、
 USART6 = 裁判系统、USART3 = DBUS，AX650 关闭。infantry 仍保留 USART1 AX650/VOFA 编译期二选一；
 USART6 裁判/自瞄 yaw VOFA 二选一。比赛/需要裁判数据时 USART6 必须回裁判模式。
 
@@ -101,13 +101,13 @@ USART6 裁判/自瞄 yaw VOFA 二选一。比赛/需要裁判数据时 USART6 �
 | 文件 | 职责与关键符号 |
 | --- | --- |
 | `app/sentry_def.h` | Sentry cmd/feed 消息合同；`small_yaw_rate_deg_s` 为小 yaw 目标角速度 |
-| `cmd/cmd_remote.c` / `cmd_kbm.c` | RM_shaobin2 映射：右杆平移、左纵 pitch、左下左横小 yaw、其余左横底盘转向 |
+| `cmd/cmd_remote.c` / `cmd_kbm.c` | RM_shaobin2 映射：右杆平移、左纵 pitch、左下持续连发且左横小 yaw、其余左横底盘转向 |
 | `cmd/cmd_authority.c` / `robot_cmd.c` | 失联/急停/解锁仲裁、Sentry 三话题发布；旧 AX650 与回中流程关闭 |
 | `chassis/chassis.c` | `CHASSIS_RC_CONTROL` 直接使用 `wz`，右中自由移动、右下小陀螺 |
 | `gimbal/gimbal.c` | 大 yaw 机械正前/世界角速度阻尼、小 yaw 相对中位、pitch 相对解锁点、USART1 VOFA |
 | `gimbal/gimbal_control.c/.h` | SI 单位角度→速度→力矩串级、积分/输出限幅、目标速度前馈 |
 | `shoot/shoot.c` + `heat_guard.c` | 单/连发、摩擦轮 1 s 延时停转、热量守卫与堵转保护 |
-| `autonomy/autonomy.c` | 自主输入预留桩；USB CDC 应用帧尚未接入控制 |
+| `autonomy/autonomy.c` | NV v1 USB RX 队列、命令超时/序号仲裁、测时响应与大 yaw 反馈；默认只通信不驱动 |
 
 ### components/
 | 文件 | 职责与关键符号 |
@@ -120,6 +120,7 @@ USART6 裁判/自瞄 yaw VOFA 二选一。比赛/需要裁判数据时 USART6 �
 | `control/controller.c` | **PID 实现**：位置式 + Improve 位(梯形积分/限幅/微分先行/滤波/变速/堵转检测) |
 | `control/quaternion_ekf.c`、`control/kalman_filter.c` | 四元数 EKF、通用 Kalman |
 | `crc/crc8.c`、`crc/crc16.c`、`math/user_lib.c` | 通用 CRC、矩阵/向量/滤波工具 |
+| `navigation/nav_protocol.c/.h` | NV v1 固定帧、小端编解码、CRC16/MODBUS、滑动重同步与速度边界校验 |
 | `imu/bmi088_driver.c`、`bmi088_middleware.c`、`ins_task.c` | `bmi088_init`、`ins_init/ins_task`、`ins_state_t` |
 | `remote/remote_control.c` | SBUS/FS 遥控解析、`remote_rc_ctrl_t` |
 | `referee/protocol/`(referee.c/referee_crc/referee_protocol.h)、`referee/ui/`(task/ui/app_status)、`referee/link/`(custom/vt*) | 裁判协议、UI、多机交互 |

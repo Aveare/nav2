@@ -1,10 +1,10 @@
 /**
  * @file    assembly.c
- * @brief   哨兵兵种装配表:cmd → gimbal → shoot → chassis 固定顺序
+ * @brief   哨兵兵种装配表:autonomy → cmd → gimbal → shoot → chassis 固定顺序
  * @layer   APP
  * @author  小猫大王
  * @note    与步兵装配表同构;哨兵差异全部收敛在 apps/sentry/ 与 config/sentry_2026/。
- * @note    导航 USB 在 cmd 前消费,控制权仍由原安全仲裁决定。
+ * @note    autonomy 先解析 USB,cmd 再做遥控与安全仲裁。
  */
 #include "app_profile.h"
 #include "profile.h"
@@ -26,7 +26,7 @@ static void sentry_init(void)
 
 static void sentry_task(void)
 {
-    autonomy_task(); /* 先消费本拍 USB 数据,再由 cmd 统一发布底盘命令。 */
+    autonomy_task();
     cmd_task();
     gimbal_task();
     shoot_task();

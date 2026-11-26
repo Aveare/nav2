@@ -26,6 +26,7 @@
 | `control/quaternion_ekf` | ACTIVE | 四元数 EKF 姿态 | `ins_task` 调用 |
 | `crc/crc8`、`crc/crc16` | ACTIVE | 通用 CRC | 裁判/协议校验 |
 | `math/user_lib` | ACTIVE | 矩阵/向量/滤波工具 | 控制与 EKF |
+| `navigation/nav_protocol` | ACTIVE | NV v1 USB 导航帧编解码、CRC 与滑动重同步 | Sentry `autonomy` 调用；默认只通信不驱动 |
 | `imu/bmi088_*` | ACTIVE | BMI088 驱动与中间件 | SPI/片选/加热器经 `ports/stm32f4/imu_port` |
 | `imu/ins_task` | ACTIVE | 姿态解算任务 | 1kHz;不直接访问 HAL 句柄 |
 | `remote/remote_control` | ACTIVE | DBUS/SBUS 解析与失联 | USART3 |

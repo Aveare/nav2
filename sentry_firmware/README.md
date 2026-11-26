@@ -4,12 +4,12 @@
 
 基于跃鹿 [basic_framework](https://github.com/HNUYueLuRM/basic_framework) 起步、2026 年完成自研框架升级的 **STM32F407IGHx + FreeRTOS 单板哨兵工程**。
 现行分层为 `apps → components → framework → ports → HAL`(方案 `.Doc/plan/自主研发框架升级总方案.md`;B0a~B12 已收口,见 `RM_DEVLOG.md` DEV-20261122-21/22/23);
-哨兵整车含底盘、三轴云台、17 mm 发射和遥控/键鼠仲裁;AX650 自瞄当前关闭,上位机改走独立 USB CDC 虚拟串口,应用帧协议尚待定义;三轴零位、方向和 PID 仍以 `[待实测]` 证据等级管理。
+哨兵整车含底盘、三轴云台、17 mm 发射和遥控/键鼠仲裁;AX650 自瞄当前关闭,上位机通过独立 USB CDC 虚拟串口使用 `NV v1` 导航协议;三轴零位、方向和 PID 仍以 `[待实测]` 证据等级管理。
 
 > **接手顺序**:本文件 → `RM_DEVLOG.md` §0(AI 冷启动摘要) → `.Doc/README.md`(文档总索引)。
 > **协作契约**:`AGENTS.md`(工程地图/禁区/检查与证据);症状→代码定位见 `.agents/skills/rm-electrical-dev/references/code-map.md`。
 >
-> 当前哨兵快照:单板 ONE_BOARD;`apps/sentry/{cmd,chassis,gimbal,shoot,autonomy}` 与 `config/sentry_2026/` 已完成手动整机实装,自主决策仅接口桩,尚未完成整车烧录验证(DEV-20261123-13/22/23/24)。
+> 当前哨兵快照:单板 ONE_BOARD;`apps/sentry/{cmd,chassis,gimbal,shoot,autonomy}` 与 `config/sentry_2026/` 已完成手动整机实装,`NV v1` 已完成主机测试和 ARM 编译但尚未烧录与实体联调(DEV-20261126-30)。
 > 功能状态与下一步以 `RM_DEVLOG.md` §0 为准。
 
 ## 目录结构
@@ -18,8 +18,8 @@
 apps/          装配层(按兵种)：sentry(当前交付目标) / infantry(共享回归) / heavy(兼容锚点)
                  └─ <robot>/app/(profile.h + robot.c + robot_def.h + robot_task.c)
                     sentry/{chassis,cmd,gimbal,shoot,autonomy}/
-components/    组件(按域)：motor(core+dji/dm/ht/servo 分组) control crc math imu remote
-                 referee ax650 calib super_cap can_comm daemon alarm
+components/    组件(按域)：motor(core+dji/dm/ht/servo 分组) control crc math navigation imu
+                 remote referee ax650 calib super_cap can_comm daemon alarm
 framework/     平台无关框架：kernel/err/mem/msg/diag + types.h/general_def.h(零 RTOS include)
 ports/         平台落地：stm32f4 全总线 *_port + freertos kernel 后端 + telemetry arena
 config/        哨兵参数唯一改动点：sentry_2026/config.h 伞头 + config_<域>.h 子头
@@ -155,9 +155,9 @@ python tools/refactor_gate.py check-links
 
 - **USART1 = 云台编码器 VOFA**:`GIMBAL_VOFA_UART1_ENABLE=1`,PA9 TX/PB7 RX,
   921600 8N1。USB-TTL 的 RX 接 PA9、GND 与主控共地,不要接 5V。
-- **USB CDC VCP = 上位机通信物理链路**:`VISION_USE_VCP` 已启用。当前仅完成虚拟串口枚举与
-  端口层,尚未定义或注册哨兵上位机应用帧协议;在协议、超时和安全降级明确前不得复用旧
-  AX650 `0x0503/0x1021` 帧。
+- **USB CDC VCP = ROS 导航物理链路**:`VISION_USE_VCP` 已启用,`NV v1` 负责底盘速度、
+  测时和大 yaw 反馈。默认 `SENTRY_AUTONOMY_ENABLE=0`,只通信不驱动;完整帧格式、ROS
+  话题和放行步骤见 [NAVIGATION_USB.md](NAVIGATION_USB.md)。
 - **AX650 已停用**:`AX650_UART1_ENABLE=0`、`AX650_UART1_RX_ENABLE=0`。
   `CHASSIS_VOFA_UART1_ENABLE=0`,因此 USART1 当前只有云台 VOFA 一个所有者。
 - **USART6 保持裁判系统**。本次改动不改变裁判接收、UI 或热量/功率数据链路。
@@ -183,7 +183,7 @@ VOFA+ 选择 **JustFloat**、921600 baud、8 data bits、None parity、1 stop bi
 | 右中挡 | 人工自由移动；右摇杆平移，左摇杆横向控制底盘转向 |
 | 右下挡 | 小陀螺；右摇杆仍可同时平移 |
 | 左中挡 | 左摇杆横向控制底盘转向；AX650 保持关闭 |
-| 左下挡 | 左摇杆横向单独控制小 yaw GM6020 |
+| 左下挡 | 开启摩擦轮并持续拨弹；左摇杆横向仍控制小 yaw GM6020 |
 | 左摇杆纵向 | 控制 pitch 相对解锁位置 ±20° |
 | 右摇杆 | 控制四个底盘 M3508 前后、左右平移 |
 | 拨轮下压 | 启动摩擦轮；短拨松手=单发×1，按住≥250ms=连发；松手后1s自动关摩擦轮 |
@@ -193,14 +193,15 @@ VOFA+ 选择 **JustFloat**、921600 baud、8 data bits、None parity、1 stop bi
 按最短路径锁定机械正前方 `SENTRY_BIG_YAW_FRONT_ALIGN_RAD=-1.52914 rad`，左摇杆不直接给大 yaw
 目标；小陀螺挡下大 yaw 使用 IMU Z 轴角速度做世界系零角速度阻尼。IMU 已确认安装在大 yaw
 平台。左下挡左摇杆横向给小 yaw 角速度目标，其余左挡位给底盘转向。
+左下挡同时持续请求 `FRICTION_ON + LOADER_BURST`；拨回中挡后停止连发请求，摩擦轮按 1 s
+延时停转。实际拨弹仍需摩擦轮在线并到速，且通过热量守卫。
 
 > 大 yaw 的 10 N·m 输出上限和 3 N·m 积分额度来自本地 RM_shaobin2 工作树，当前仅通过
 > 编译与主机测试，尚未在本工程固件上完成台架回归。此前本车出现过 10 N·m 饱和、机构带不动
 > 和 DM 线圈过温；首次烧录必须架空、低时长测试并监测驱动状态和温度。
 
-AX650 关闭后左中挡不会进入旧自瞄目标整形或禁用回中逻辑,当前与普通遥控一致。
-后续若要让 VCP 下发瞄准/自主指令,必须先定义帧格式、坐标系、超时、安全态和模式仲裁,
-再单独实现并补测试;当前固件不会把 USB CDC 收到的任意字节直接当作控制命令。
+AX650 关闭后左中挡不会进入旧自瞄目标整形或禁用回中逻辑。VCP 导航只解析 CRC 正确、
+序号前进且未越限的 `NV v1` 帧；默认配置不会把已解析速度送入底盘。
 
 > 实际放行还受热量守卫约束:热量进入 `SINGLE` 只放单发,进入 `HOLD` 禁发;
 > 裁判系统未接线时守卫为 `OFF`,全放行(台架行为)。

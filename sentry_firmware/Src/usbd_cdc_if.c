@@ -262,9 +262,9 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-  /* Copy the current packet before rearming the shared USB RX buffer. */
+  /* 回调必须在重新挂接共享 RX 缓冲前完成复制,避免下一包覆盖当前数据。 */
   if(rx_cbk)
-    rx_cbk(*Len);
+    rx_cbk((uint16_t)*Len);
 
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);

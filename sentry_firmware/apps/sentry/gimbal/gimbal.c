@@ -10,7 +10,6 @@
 #include "gimbal_control.h"
 #include "sentry_def.h"
 #include "robot_def.h"
-#include "kernel.h"
 #include "dm_motor.h"
 #include "dji_motor.h"
 #include "ins_task.h"
@@ -18,6 +17,7 @@
 #include "cmd_watchdog.h"
 #include "general_def.h"
 #include "dwt_port.h"
+#include "kernel.h"
 #include "log_port.h"
 #if GIMBAL_VOFA_UART1_ENABLE
 #include "fault_port.h"
@@ -480,16 +480,17 @@ void gimbal_task(void)
         gimbal_small_yaw_step(now_ms);
     }
 
+    const uint32_t sample_saved = kernel_enter_critical();
+    const float big_position = gimbal_big_yaw_position_rad();
+    const uint64_t big_yaw_sample_us =
+        (big_yaw_motor != NULL) ? big_yaw_motor->rx_sample_us : 0u;
+    kernel_exit_critical(sample_saved);
     if (gimbal_imu_data != NULL)
         gimbal_fb.imu = *gimbal_imu_data;
     gimbal_fb.big_yaw_world_deg =
         (gimbal_imu_data != NULL) ? gimbal_imu_data->YawTotalAngle : 0.0f;
-    uint32_t nav_saved = kernel_enter_critical();
-    const float big_position = gimbal_big_yaw_position_rad();
     gimbal_fb.big_yaw_rel_deg =
         remainderf(big_position - gimbal_big_yaw_align_rad(), 2.0f * FW_PI) * FW_RAD_TO_DEG;
-    gimbal_fb.big_yaw_sample_us = (big_yaw_motor != NULL) ? big_yaw_motor->rx_sample_us : 0u;
-    kernel_exit_critical(nav_saved);
     gimbal_fb.small_yaw_rel_deg = small_yaw_joint_deg;
     gimbal_fb.pitch_deg =
         pitch_reference_initialized
@@ -500,6 +501,7 @@ void gimbal_task(void)
     gimbal_fb.pitch_state = (pitch_motor != NULL) ? pitch_motor->measure.state : 0u;
     gimbal_fb.big_yaw_state = (big_yaw_motor != NULL) ? big_yaw_motor->measure.state : 0u;
     gimbal_fb.big_yaw_online = gimbal_dm_feedback_fresh(big_yaw_motor);
+    gimbal_fb.big_yaw_sample_us = big_yaw_sample_us;
     msg_publish(gimbal_pub, &gimbal_fb);
 
 #if GIMBAL_VOFA_UART1_ENABLE

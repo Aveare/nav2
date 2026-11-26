@@ -14,7 +14,7 @@
 #define SENTRY_BIG_YAW_DM_MASTER_ID 0
 #define SENTRY_PITCH_DM_ID 5
 #define SENTRY_PITCH_DM_MASTER_ID 0
-#define SENTRY_SMALL_YAW_ESC_ID 1
+#define SENTRY_SMALL_YAW_ESC_ID 1 /* [实测 2026-11-26] GM6020 实车 ID1(0x205;摩擦轮 ESC5 命令曾驱动它,证实 slot0) */
 #define SENTRY_SMALL_YAW_CURRENT_MODE 0
 
 /* calib 组件的通用回退合同；本车 DM 轴不读取这些 DJI 编码器占位值。 */
@@ -43,8 +43,8 @@
 #define SENTRY_BIG_YAW_KD_BLEND_LO_DEG 4.0f
 #define SENTRY_BIG_YAW_KD_BLEND_HI_DEG 8.0f
 
-#define SENTRY_BIG_YAW_SPEED_KP 5.2f
-#define SENTRY_BIG_YAW_SPEED_KI 1.2f
+#define SENTRY_BIG_YAW_SPEED_KP 4.2f /* [调参起点-待实测] 小陀螺稳像速度环,降低左右振荡 */
+#define SENTRY_BIG_YAW_SPEED_KI 0.8f /* [调参起点-待实测] 减小积分累积 */
 #define SENTRY_BIG_YAW_INTEGRAL_NM 3.0f
 /* [待实测] 本地工作树最新诊断值 3 N.m；烧录后必须监测线圈温度与驱动状态。 */
 #define SENTRY_BIG_YAW_TORQUE_NM 10.0f

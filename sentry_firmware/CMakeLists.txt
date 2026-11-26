@@ -12,15 +12,52 @@ endif()
 if(NOT CMAKE_ASM_COMPILER)
     set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
 endif()
-set(CMAKE_OBJCOPY arm-none-eabi-objcopy)
-set(CMAKE_OBJDUMP arm-none-eabi-objdump)
-set(SIZE arm-none-eabi-size) 
-set(CMAKE_AR arm-none-eabi-ar)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) 
 
 # 指定工程名称和语言类型
 project(basic_framework C ASM) 
+
+# 工具链 binutils:交叉工具链一般只有 gcc 在 PATH 上(本工程由 build.ps1 用
+# -DCMAKE_C_COMPILER 传全路径),裸名 arm-none-eabi-ar/objcopy/size 会在归档与
+# POST_BUILD 阶段报"不是内部或外部命令"。优先取与 C 编译器同目录的 binutils;
+# 编译器是裸名(CI/工具链已在 PATH)时保持 CMake 默认查找。
+if(IS_ABSOLUTE "${CMAKE_C_COMPILER}")
+    get_filename_component(TOOLCHAIN_BIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+endif()
+if(TOOLCHAIN_BIN_DIR)
+    set(TOOLCHAIN_EXE_SUFFIX "")
+    if(CMAKE_HOST_WIN32)
+        set(TOOLCHAIN_EXE_SUFFIX ".exe")
+    endif()
+    function(pin_binutil out_var name)
+        if(EXISTS "${TOOLCHAIN_BIN_DIR}/arm-none-eabi-${name}${TOOLCHAIN_EXE_SUFFIX}")
+            set(${out_var} "${TOOLCHAIN_BIN_DIR}/arm-none-eabi-${name}${TOOLCHAIN_EXE_SUFFIX}" PARENT_SCOPE)
+        endif()
+    endfunction()
+    pin_binutil(CMAKE_AR ar)
+    pin_binutil(CMAKE_RANLIB ranlib)
+    pin_binutil(CMAKE_OBJCOPY objcopy)
+    pin_binutil(CMAKE_OBJDUMP objdump)
+    pin_binutil(SIZE size)
+endif()
+# 兜底:与旧行为一致(裸名 + PATH)。CI 上 CMake 会自行探测到全路径,这里只在
+# 探测不到时补默认值,避免 ${SIZE} 等展开为空导致 POST_BUILD 命令非法。
+if(NOT CMAKE_AR)
+    set(CMAKE_AR arm-none-eabi-ar)
+endif()
+if(NOT CMAKE_RANLIB)
+    set(CMAKE_RANLIB arm-none-eabi-ranlib)
+endif()
+if(NOT CMAKE_OBJCOPY)
+    set(CMAKE_OBJCOPY arm-none-eabi-objcopy)
+endif()
+if(NOT CMAKE_OBJDUMP)
+    set(CMAKE_OBJDUMP arm-none-eabi-objdump)
+endif()
+if(NOT SIZE)
+    set(SIZE arm-none-eabi-size)
+endif()
 
 # 选择构建类型:默认 Debug,允许 CI/发布显式选择 Release/RelWithDebInfo。
 if(NOT CMAKE_BUILD_TYPE)
@@ -141,7 +178,6 @@ add_custom_command(
     TARGET ${PROJECT_NAME}.elf POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -Oihex $<TARGET_FILE:${PROJECT_NAME}.elf> ${PROJECT_BINARY_DIR}/${PROJECT_NAME}.hex
     COMMAND ${CMAKE_OBJCOPY} -Obinary $<TARGET_FILE:${PROJECT_NAME}.elf> ${PROJECT_BINARY_DIR}/${PROJECT_NAME}.bin
-    COMMENT "Building hex & bin file..."
-    COMMENT "EXCUTABLE SIZE:"
+    COMMENT "Building hex & bin file... executable size follows"
     COMMAND ${SIZE} ${PROJECT_NAME}.elf
   )

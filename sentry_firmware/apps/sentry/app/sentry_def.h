@@ -34,7 +34,7 @@ typedef struct
     uint8_t big_yaw_state;     // DM 状态位(dm_motor_err_state_e)
     uint8_t pitch_state;       // DM 状态位
     uint8_t big_yaw_online;    // 1=DM 反馈新鲜
-    uint64_t big_yaw_sample_us; // 与 big_yaw_rel_deg 同一反馈快照的 MCU 时间
+    uint64_t big_yaw_sample_us; // 大 yaw CAN 反馈进入 MCU 的采样时间
 } sentry_gimbal_feed_t;
 
 /* chassis → cmd:轮速逆解估计与模式快照 */

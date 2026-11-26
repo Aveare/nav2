@@ -15,15 +15,15 @@
 | 基线身份 | 仓库内 `.agents/skills/rm-electrical-dev`(上游 basic_framework @1a136eb1,460 条;审计脚本随仓库走,见 DEV-20261116-06) |
 | 工程目标 | **当前交付目标 = 哨兵 Sentry**:`apps/sentry/` + `config/sentry_2026/`;必须显式执行 `build.ps1 sentry -Current`,哨兵烧录优先使用明确命名的 `firmware/sentry.elf`,CMake 无参数默认 infantry 仅作历史兼容(DEV-20261126-01/03) |
 | 有效配置 | 哨兵 ONE_BOARD 单板;`config/sentry_2026/config.h`(伞头 + `config_<域>.h`);装配入口 `apps/sentry/app/assembly.c`,消息合同 `apps/sentry/app/sentry_def.h`;infantry/heavy profile 仅作共享回归与兼容 |
-| 功能状态 | 哨兵底盘/三轴云台/发射/遥控/安全机制已实装;**AX650 已关闭,USART1 专用于三轴编码器 VOFA JustFloat,USB CDC VCP 保留为独立上位机物理链路且应用帧待定义**;DEV-20261126-25 已按本地 RM_shaobin2 Sentry 工作树迁移遥控/PID:右杆平移,左纵杆 pitch,左下+左横杆小 yaw,其他左挡+左横杆底盘转向;大 yaw 普通挡锁机械正前、小陀螺挡做世界角速度阻尼;大小 yaw 均恢复输出。此前大 yaw 10 N·m 饱和/线圈过温是未关闭的历史风险,本次仅完成编译与主机验证,必须架空短测 |
-| 最近验证 | **2026-11-26 Sentry RM_shaobin2 移植(DEV-20261126-25)**:infantry/sentry/heavy 三构建成功，chassis/fwk/AX650/profile 四套主机测试 PASS，fullchain 700 拍确定性通过，11 项静态检查 PASS；Sentry ELF SHA-256 `8BD68019…E467100`。仓库既有 skill 快照 `LICENSE` 哈希不匹配使 baseline audit 不可靠，未冒充通过；未烧录，实车待架空回归 |
+| 功能状态 | 哨兵底盘/三轴云台/发射/遥控/安全机制已实装;**AX650 已关闭,USART1 专用于三轴编码器 VOFA JustFloat,USB CDC VCP 已接入 NV v1 ROS 导航协议**;默认 `SENTRY_AUTONOMY_ENABLE=0`,只解析/测时/回传大 yaw,不驱动底盘;遥控为右杆平移、左纵杆 pitch、左下+左横杆小 yaw、其他左挡+左横杆底盘转向;大 yaw 普通挡锁机械正前、小陀螺挡做世界角速度阻尼。此前大 yaw 10 N·m 饱和/线圈过温是未关闭的历史风险,必须架空短测 |
+| 最近验证 | **2026-11-26 NV v1 ROS↔STM32 通信(DEV-20261126-30)**:导航协议四组主机测试、chassis/fwk/AX650/profile 回归、静态门禁和 Sentry ARM 编译通过;ELF SHA-256 `832D4F6C…ADEFAA`。仓库既有 skill 快照 `LICENSE` 哈希不匹配使 baseline audit 不可靠，未冒充通过；未烧录、未做实体 USB/底盘运动验证 |
 | 当前问题 | 无(RM-001 已关闭) |
-| 下一步 | 用户架空验证 RM_shaobin2 迁移固件:先核对急停、三轴方向/限位和 USART1 VOFA,再短时测试大 yaw 并监测 DM 状态/温度;另行定义 USB CDC VCP 上位机帧、坐标系、超时、安全态与模式仲裁;M3 整车回归和热量守卫实测仍由用户执行 |
+| 下一步 | 烧录 `firmware/sentry.elf` 后保持两端驱动开关关闭,先确认测时与 `/big_yaw/joint_states`;随后架空核对正前/左移/逆时针符号及四类断流降级,验收后才允许同时打开 MCU `SENTRY_AUTONOMY_ENABLE` 与 NUC `enable_drive`;M3 整车回归和热量守卫实测仍由用户执行 |
 | 演进待办 | flash 标定流程(Yaw 零位等持久化,代码只读语义名),实车回归通过后评估 |
 | 重构状态 | **自主研发框架升级 B0a~B12 已完成(2026-11-22,DEV-20261122-21/22/23)**:framework/{kernel,err,mem,msg,diag} + ports 全总线/FreeRTOS 后端 + components/ + apps/{infantry,heavy,sentry}_skeleton(CMake `ROBOT_PROFILE`);板型运行期化按 DEC-009 不做;**`application/`、`modules/`、`bsp/` 全部删除**,AGENTS/Skill/code-map v2/版权页收口。**2026-11-23 工程统一化(DEV-20261123-01)**:目录语义化(app/、config_*)、函数/类型/宏/变量/枚举全量 snake_case + 模块前缀、API 统一 `module_verb_object`、注释头 171/171、命名规范与 `check_naming.py`/`.clang-tidy` 落地。下一里程碑 = **M3 实车回归(用户)→ M3′ 结项验收**(tag 复核点 `arch-before-M3p`)。2026-11-20 零行为变化重构 **R0~R6 已完成**(9 提交,DEV-20261120-03~09):闸门工具、文档五类重组、config 分轴、cmd 拆分、chassis/gimbal 函数搬出、切断 modules→application 反向依赖、构建/CI 收口。**功能与参数零改动,text 仅 +56 B(+0.05%),bss 不变**。排程入口 `.Doc/plan/重构总方案.md`(已结项:R0~R6+R5b 全部交付,实车回归 2026-11-20 PASS;R4b 经裁决不做),回退标签 `refactor-before-R{0,2,3,4a,5,6}`。该重构无遗留待办;**当前结构轴待办 = M3 实车回归 → M3′ 结项验收**。功能队列仍冻结。 |
 | 文档结构 | 2026-11-20 重组为 `plan/ spec/ detail/ guide/ history/`,2026-11-23 补 `review/`、`gate/` 索引;规范新增 `spec/命名规范.md`,组件登记 `components/README.md`。索引见 `.Doc/README.md`。**本文件 §6 历史 DEV 条目里的 `.Doc/xxx.md` 是当时路径**,已移动的文件按文件名在 `.Doc/` 下检索(新条目请写全路径)。 |
 
-哨兵当前串口路由:**USART1 = 云台三轴编码器 VOFA(921600 8N1);USB CDC VCP = 独立上位机物理链路(应用协议待定义);USART6 = 裁判系统**。旧 AX650 UART1 链路已关闭,见 DEV-20261126-02。
+哨兵当前串口路由:**USART1 = 云台三轴编码器 VOFA(921600 8N1);USB CDC VCP = NV v1 ROS 导航链路;USART6 = 裁判系统**。默认只通信不驱动,协议见 `NAVIGATION_USB.md`。旧 AX650 UART1 链路已关闭,见 DEV-20261126-02。
 
 哨兵兵种已进入**手动整机实装**(DEV-20261123-13):`apps/sentry/{cmd,chassis,gimbal,shoot,autonomy}` + `config/sentry_2026/` 全部落地,CMake `-DROBOT_PROFILE=sentry` 可构建;默认构建仍为步兵。三轴零位/方向/PID 均为 `[待实测]`,未烧录。
 
@@ -37,16 +37,16 @@ U3/U4 已收口:组件层直达 RTOS/HAL 与具体句柄清理,IMU 增加 `ports
 
 | 项目 | 内容 |
 | --- | --- |
-| 当前目标与验收 | 哨兵三轴云台/底盘/发射台架回归,并单独定义 VCP 上位机协议 |
+| 当前目标与验收 | 哨兵三轴云台/底盘/发射台架回归,完成 NV v1 VCP 实体通信与导航失效保护验收 |
 | 机器人与任务范围 | 2026 哨兵 Sentry,RoboMaster RMUC,单板整车 |
 | skill | rm-ec-dev v1.1 |
 | 工程源码基线 | jit-rm-1029.manifest.json(见 §0);git 为字节历史事实源 |
 | 有效配置 | ONE_BOARD;`config/sentry_2026/`;VISION_USE_VCP;USART1=云台 VOFA;AX650=OFF |
-| 功能状态 | 生效:哨兵底盘/三轴云台/发射/仲裁/看门狗/遥测、UART1 VOFA;VCP 应用协议待定义;预留:超电/ist8310 |
+| 功能状态 | 生效:哨兵底盘/三轴云台/发射/仲裁/看门狗/遥测、UART1 VOFA、NV v1 VCP 通信;导航驱动默认关闭;预留:超电/ist8310 |
 | 最近验证 | 见 §0 |
 | 板上固件身份 | 待确认(用户烧录后回填) |
 | 当前问题 | 无 |
-| 最近开发条目 | DEV-20261126-25 |
+| 最近开发条目 | DEV-20261126-30 |
 | 下一步 | 见 §0 |
 
 ## 2. 设计与配置
@@ -4542,14 +4542,234 @@ PASS，其中 fullchain 700 拍确定性检查通过且历史金标准未重锚�
 
 **AI**：OpenAI Codex（GPT-5），2026-11-26。
 
-### DEV-20261126-26｜2026-11-26｜基于 `youyucat/RM-JIT-CR@sentry`（`a24eeb6`）合并本地 `NV v1` 导航与共享 USB CDC 自瞄
+### DEV-20261126-26｜2026-11-26｜[SENTRY] 左拨杆下挡开启摩擦轮并持续拨弹
 
-- **触发与基线**：用户指定再次同步 `https://github.com/youyucat/RM-JIT-CR/tree/sentry`（HEAD=`a24eeb6e2984f9fae4286b71ed04d11bb2e1897d`，已包含 `DEV-20261126-25` 的 `RM_shaobin2@593d6af` 完整移植：600×560 mm 底盘、小陀螺 150°/s、大 yaw 正前 `-1.52914 rad` / `Kp=5.2, Ki=1.2` / 积分 `3 N·m` / 总输出 `10 N·m`、小 yaw ECD 27 / `±90°`、pitch `±20°`、CAN2 发射、USART1 三轴 VOFA 与遥控映射）。本轮完整保留 `a24eeb6` 的所有实车控制与参数，将本地已验证的 `NV v1` 32B USB 导航协议与共享 USB CDC 自瞄 `0x1021/0x0503` 叠加合入。
-- **叠加改动**：
-  - 恢复并合入 `components/navigation/nav_protocol.{h,c}`、`components/ax650/ax650_usb.{h,c}`、`apps/sentry/autonomy/autonomy.{h,c}`、`ports/stm32f4/usb_port.{h,c}`、`ports/freertos/kernel_freertos.c`、`Src/usbd_cdc_if.c`、`components/motor/dm/dm_motor.{h,c}`（CAN Rx ISR 记录 `rx_sample_us`）、`components/imu/ins_task.c`、`config/sentry_2026/config_{autonomy,ax650}.h`、`apps/sentry/app/{assembly.c,sentry_hooks.c,sentry_def.h}`、`tests/navigation/`、`NAVIGATION_USB.md`、`AUTOAIM_USB_PROTOCOL.md`、`COLCON_IGNORE`。
-  - 最小化补丁：`framework/types.h` 在 `CHASSIS_RC_CONTROL` 后追加 `CHASSIS_NAVIGATION`；`config/sentry_2026/config.h` 增加 `AX650_USB_ENABLE && AX650_UART1_ENABLE` 互斥检查（保留 USART1 给云台 VOFA）；`apps/sentry/chassis/chassis.c` 增加 `CHASSIS_NAVIGATION` 物理系直通与导航专用斜坡；`apps/sentry/cmd/robot_cmd.c` 保留 `cmd_remote.c` 原始 `RM_shaobin2` 遥控映射，在安全仲裁前挂载 `SENTRY_AUTONOMY_ENABLE` 门控（默认 `0`，且 `autonomy_get_command` 硬清零）；`apps/sentry/gimbal/gimbal.c` 临界区原子快照 `big_yaw_rel_deg` 与 `big_yaw_sample_us`；`build.ps1` 自动将找到的 `$gccDir` 前置到 `$env:PATH`。
-- **本地验证（严禁小电脑编译）**：
-  - 本地 Windows ARM GCC 14.2.1（`C:\sentry_fw\build.ps1 sentry -Current`）：147/147 清洁构建与链接通过，第一方 0 error / 0 warning；`FLASH 119,184 B (11.37%)`、`RAM 74,120 B (56.55%)`、`CCMRAM 54,944 B (83.84%)`（`text=118496, data=680, bss=128392`）。
-  - 产物：`firmware/sentry.elf` 与 `firmware/current.elf`（`1,384,504 B`，`SHA256=152DEC03A4308FF92533CCC1612C69F1B0FE9A0D65874DF8EBE3259DD4138B1D`）。
-  - 本地 WSL 主机测试：`profile_compile_{heavy,sentry}`、`sentry_gimbal_alloc_test`、`sentry_gimbal_control_test`、`sentry_remote_mapping_test` 以及 `tests/navigation/run_tests.py` 4 组矩阵（`feedback-only`/`drive-enabled` × `-O0`/`-Ofast -flto`，含 `NV`/`0x0503`/`0x1021` 黄金字节核对）全部通过。
-- **未验证边界**：本次未烧录 MCU，未做实体 USB 联调与台架验证；同时遵循 `DEV-20261126-25` 安全提示，首次烧录必须架空四轮、短时测试并监测 DM 状态码与温度。
+**需求与行为**。用户要求左拨杆拨到下挡时使能拨盘和摩擦轮进行发射。`cmd_remote_set()` 现于
+左下挡持续发布 `SHOOT_ON + FRICTION_ON + LOADER_BURST`；左摇杆横向控制小 yaw 的既有映射保留。
+拨回中挡后立即撤销连发请求，摩擦轮沿用 `SHOOT_FRICTION_STOP_DELAY_MS=1000 ms` 延时停转。
+
+**安全边界**。本次没有绕过控制权仲裁：任一拨杆上挡、遥控失联、拨轮急停或 STOP 锁存仍会
+统一覆盖为 `SHOOT_OFF/FRICTION_OFF/LOADER_STOP`。实际拨盘输出仍需双摩擦轮在线并到速，并受
+拨盘堵转保护、热量守卫和命令看门狗约束。非左下挡继续使用拨轮短拨单发、长按连发逻辑。
+
+**文件与文档**。修改 `apps/sentry/cmd/cmd_remote.c`；扩展
+`tests/sentry_remote_mapping_test.c`，同时验证左下挡开启摩擦轮/连发及拨回中挡停止；同步更新
+`README.md`、`.Doc/detail/SENTRY_RM_shaobin2移植说明.md` 和 skill `code-map.md`。
+
+**验证**。`tests/run_profile_tests.ps1` PASS，其中新增左下挡发射断言通过；
+`build.ps1 sentry -Current` 成功，RAM 72960 B、CCMRAM 54944 B、FLASH 115492 B，
+text/data/bss=114804/680/127232。`build_sentry/{basic_framework,sentry}.elf` 与
+`firmware/{sentry,current}.elf` 四份 SHA-256 均为
+`B572461D465602A7F45D79E5C17617840C55948BC771EDAB7E741F5D73094C76`。基线审计仍被仓库
+既有 skill 快照 `LICENSE` 哈希不匹配阻断。未烧录、未操作实车。
+
+### DEV-20261126-27｜2026-11-26｜[SENTRY] 拨盘台架整定开关(旁路摩擦轮互锁)
+
+**触发**。实车发射只有一个摩擦轮转动,`shoot_friction_ready()` 要求双轮在线且在速,
+互锁恒不通过 → 连发/单发的拨盘参考恒为 0,拨盘 PID 无法整定。这是硬件侧问题(CAN/供电/拨码待查),
+不应靠调 PID 绕过,故提供一条只用于台架的显式旁路。
+
+**改动**。`config/sentry_2026/config_shoot.h` 新增 `LOADER_BENCH_ENABLE`(默认 **0**)与
+`LOADER_BENCH_REF_DEG_S`(3000,电机轴 deg/s ≈ 输出轴 83RPM);`apps/sentry/shoot/shoot.c`:
+台架模式下 `shoot_friction_ready()` 直接放行,`LOADER_BURST` 参考改为固定 `LOADER_BENCH_REF_DEG_S`
+(不再跟随射速档,避免 6 发/s≈11109deg/s 空盘过快)。默认 0 时除一层 `#if` 外与原代码逐行等价。
+
+**风险与约束**。台架模式互锁失效,只允许空盘/架空;带弹或上场固件必须置 0 后重新编译。
+热量守卫在无裁判(`HEAT_GUARD_OFF`)时本就放行,台架不需要额外旁路。
+
+**文件与文档**。修改 `config/sentry_2026/config_shoot.h`、`apps/sentry/shoot/shoot.c`;本条目。
+
+**验证**。`build.ps1 sentry -Current` 成功:默认 0 时 FLASH 115488 B / RAM 72960 B /
+CCMRAM 54944 B(与本改动前逐字节体积一致,证明默认路径零行为变化);临时置 1 亦构建成功,
+FLASH 115276 B,已改回 0。`tests/run_chassis_tests.ps1` ALL PASS、`tests/run_profile_tests.ps1`
+PASS;门禁 `check_naming.py`/`check_macro_dups.py`/`check_comment_style.py`/`check_macros.py`/
+`check_macro_golden.py`/`check_abi_golden.py`/`check_source_lists.py` 均 PASS。
+`tests/run_fwk_tests.ps1` 在 `check_symbol_contract.py` 处因缺外部工具报 WinError 2 中断,
+属本机环境问题、与本改动无关,**未冒充通过**。
+
+**未验证**。拨盘实体是否转动(CAN/供电/拨码未排查)、3000deg/s 是否适合观察低速爬行、
+单发/三发在该模式下的行为、带弹表现。未烧录、未操作实车。
+
+**AI**：DeepSeek Flash(DSH),2026-11-26。
+
+**AI**：OpenAI Codex（GPT-5），2026-11-26。
+
+### DEV-20261126-28｜2026-11-26｜[SENTRY] 修复 Windows 下 CMake binutils 裸名导致的链接失败
+
+**触发**。`build.ps1 sentry -Current` 在 `[111/145] Linking C static library libframework_core.a`
+失败:`'arm-none-eabi-ar' 不是内部或外部命令`。同一次构建的 POST_BUILD 还硬编码了裸名
+`arm-none-eabi-objcopy`/`arm-none-eabi-size`,只是先卡在 ar 没走到,修 ar 后仍会接着失败。
+
+**根因**。`CMakeLists.txt` 在 `project()` 之前把 `CMAKE_AR`/`CMAKE_OBJCOPY`/`CMAKE_OBJDUMP`/
+`SIZE` 设成裸名;`build.ps1` 用 `-DCMAKE_C_COMPILER=<bundle>/bin/arm-none-eabi-gcc.exe` 传全路径
+编译器,但**不把该 bin 目录加入 PATH**,裸名在 Windows 上无法解析。CMake 自己探测出的
+`CMAKE_RANLIB` 是全路径,所以只有 ar 先报错。
+
+**改动**。`CMakeLists.txt`:删除上述裸名硬设;`project()` 之后新增 binutils 定位——
+`CMAKE_C_COMPILER` 为绝对路径时取同目录的 `arm-none-eabi-{ar,ranlib,objcopy,objdump,size}`
+(Windows 补 `.exe`);探测不到时保留 CMake 结果并补裸名兜底(与旧行为一致,避免 CI/Linux 上
+`${SIZE}` 展开为空、POST_BUILD 命令非法)。
+同时把 `add_custom_command` 里重复的 `COMMENT` 合并为一条,消除 CMake CMP0175 开发者警告。
+
+**验证**。`build.ps1 sentry` 成功(0 error;配置期不再出现 CMP0175 警告),FLASH 115516 B /
+RAM 72960 B / CCMRAM 54944 B,text/data/bss=114828/680/127232;生成的
+`CMakeFiles/rules.ninja` 与 POST_BUILD 规则确认 ar/ranlib/objcopy/size 均为全路径。此外:
+(1) 全新目录 `build_verify_tc` 重新 configure 并构建 `framework_core` 通过(排除旧缓存);
+(2) 模拟 CI 场景——把工具链 bin 加进 PATH、只用裸名 `arm-none-eabi-gcc` configure,通过且
+规则里工具仍解析成全路径;(3) `check_build_parity.py` PASS。两个临时目录及其日志已删除。
+`build_sentry/basic_framework.elf`、`firmware/{sentry,current}.elf` 三份 SHA-256 均为
+`7D9DA7F01114DC6CA73836B6F7F7E044E2BCC877D84A8EBEDF633DD0FC7DE9F2`。
+
+**未验证**。其他机器与 GitHub CI(Linux,GCC 在 PATH,走回退分支)未实跑;基线审计仍被仓库
+既有 skill 快照 `LICENSE` 哈希不匹配阻断。未烧录、未操作实车。
+
+**AI**：DeepSeek Flash(DSH),2026-11-26。
+
+### DEV-20261126-29｜2026-11-26｜[SENTRY] 小 yaw 电调 ID 对齐实车 CAN2 ESC4
+
+**触发**。用户给出实车完整 CAN 拨码表:CAN1 底盘 ESC1-4 + 大 yaw DM(ID5/Master0);CAN2
+摩擦轮左/右 ESC1/2、拨盘 ESC3、小 yaw GM6020 ESC4、pitch DM(ID5/Master0)。逐项对照配置,
+只有 `SENTRY_SMALL_YAW_ESC_ID` 不一致(配置 1,实车 4),其余全部匹配。
+
+**影响**。GM6020 按 ID1 注册时命令写进 `0x1FF` 的 slot0、等待 `0x205` 反馈;实车 ID4 只听
+slot3、回 `0x208`,于是小 yaw 既收不到力矩又永远离线。摩擦轮左/右配置的 1/2 与实车一致,
+**"一个转一个不转"不是 ID 配置问题**,剩余排查方向在左轮电调供电/相线/插头或电调本体。
+
+**改动**。`config/sentry_2026/config_gimbal.h`:`SENTRY_SMALL_YAW_ESC_ID 1 → 4`(附实测
+注释);`config/sentry_2026/config.h` 伞头 CAN 映射注释改为实车完整拓扑;
+`.Doc/detail/SENTRY_RM_shaobin2移植说明.md` CAN 表小 yaw 改 ESC 4。
+
+**验证**。`build.ps1 sentry -Current` 成功 0 error,FLASH 115520 B / RAM 72960 B /
+CCMRAM 54944 B,`firmware/current.elf` SHA-256
+`DF9ECE09F7AA5646C0923DE98876CF2FDDE6FDAACB512E2E786AD54AADADCA82`。已烧录
+(2026-11-26 17:33,EmberProbe CMSIS-DAP + OpenOCD 0.12.0,`Programming Finished` /
+`Verified OK` / reset run,SHA 一致)。小 yaw 受控与摩擦轮单轮问题
+待实车确认。
+
+**AI**：DeepSeek Flash(DSH),2026-11-26。
+
+### DEV-20261126-30｜2026-11-26｜[SENTRY] ROS 2 与 STM32 NV v1 导航通信闭环
+
+**触发与基线**。用户要求把 ROS 导航所需的上下位机消息通信写完整。开工前从
+`origin/sentry` 拉取并确认本地与远端均为 `91289d515f917d3727b390cca1f03cda7ba86af2`，
+未使用 `D:\BaiduNetdiskDownload\Nav\rm-jit` 的任何内容。NUC 侧
+`cod_nuc_bringup/sentry_usb_bridge.py` 已具备 `/cmd_vel`、`/Odometry`、
+`/big_yaw/joint_states` 与 USB 单所有者逻辑，本批补齐 STM32 接收、反馈和底盘仲裁。
+
+**协议与实现**。新增 `components/navigation/nav_protocol.c/.h`：固定 32 字节小端
+`NV v1` 帧、CRC16/MODBUS、逐字节滑动重同步、有限值与 0.35 m/s/0.5 rad/s 边界检查。
+`apps/sentry/autonomy` 使用 8 槽 USB ISR 复制队列，在 200 Hz 任务内解析命令、回显测时并
+以 50 Hz 回传带 CAN 采样时间的大 yaw 相对角。ROS 左正 `vy` 转为电控右正，m/s、rad/s
+分别转为 mm/s、deg/s。DM CAN 回调记录 ISR-safe RTOS tick，云台在临界区成对快照角度和
+时间；USB RX 在重新挂接共享缓冲前完成复制，TX 增加未枚举/忙检查。
+
+**控制与安全**。新增 `CHASSIS_NAVIGATION`，导航速度不再按大 yaw 偏角旋转，并使用
+350 mm/s² 独立平移斜坡。命令 300 ms 超时，重复/倒退序号不续命。只有 MCU
+`SENTRY_AUTONOMY_ENABLE=1`、NUC `enable_drive=true`、左右拨杆中位且右摇杆回中时才接管；
+最终仍经过原遥控失联、急停锁存和 `SENTRY_CHASSIS_FORCE_DISABLE` 仲裁。当前提交保持两个
+驱动开关默认关闭，故烧录后也只通信不驱动。
+
+**文档与测试**。新增 `NAVIGATION_USB.md`，列出 ROS 消息、帧布局、坐标/单位、时效门控和
+实车放行顺序；同步 README、组件登记和 skill 代码地图。`tests/navigation` 在
+feedback-only/drive-enabled × `-O0`/`-Ofast -flto` 四种组合下均通过，并与 Python 黄金帧
+逐字节一致，覆盖分包、错位重同步、CRC、重复序号、排队超时、NaN/越界、坐标转换、测时和
+不重复角度反馈。chassis/fwk/AX650/profile 四套回归通过；命名、宏、ABI、注释、源清单、
+段占用、符号合同、构建 parity 与文档链接检查通过。
+
+**ARM 构建**。`build.ps1 sentry -Current` 成功，arm-none-eabi-gcc 14.3.1，0 error；
+FLASH 117476 B / RAM 73784 B / CCMRAM 54944 B。`firmware/current.elf` 与
+`firmware/sentry.elf` SHA-256 为
+`832D4F6C1A11E9A34AA8C60160366B69E05FAD364FF1B4C2FBBB7BFB90ADEFAA`。
+本机未找到仓库建议的 15.3.1，因此不能把本次尺寸与该工具链基线直接对比。
+
+**未验证与既有阻断**。未烧录、未访问实体 STM32 串口、未让底盘运动。基线审计仍被仓库
+既有 skill 快照 `LICENSE` 哈希不匹配阻断；G4 的 `arch-after-U3U4` manifest 早于后续
+Sentry 整车提交，会把既有 Sentry 文件与句柄落点报告成新增红旗，故均未冒充通过。本批
+diff 未新增 `while(1)` 或应用层硬件句柄。
+
+**AI**：OpenAI Codex(GPT-5),2026-11-26。
+
+### DEV-20261126-31｜2026-11-26｜[SENTRY] 修正小陀螺几何并初调稳像与转速
+
+**用户实测反馈**。用户将 `CHASSIS_WHEEL_BASE` 与 `CHASSIS_TRACK_WIDTH` 均改为
+580 mm 后，大 yaw 小陀螺时世界方向漂移明显消失；但保持世界方向时仍有轻微左右振荡。
+该几何调整由用户实测，不在本条重复修改。
+
+**参数调整**。为抑制大 yaw 世界角速度环的左右振荡，将速度环 `Kp` 从 5.2 降至 4.2、
+`Ki` 从 1.2 降至 0.8；小陀螺底盘速度从 150 deg/s 按用户要求提高 30% 至 195 deg/s。
+这些是待实车复测的保守起始值，不代表振荡已关闭。
+
+**验证状态**。仅完成静态配置核对；未构建、未烧录、未做实车验证。基线审计仍受仓库既有
+skill 快照 `LICENSE` 哈希不匹配影响，审计结果不可靠。
+
+**AI**：OpenAI Codex(GPT-6),2026-11-26。
+
+### DEV-20261126-32｜2026-11-26｜[SENTRY] 右摩擦轮电调实际 ID5 对齐(单轮不转定位)
+
+**触发**。实车摩擦轮"左转右不转",RTT 持续打印 `Motor lost, can bus [2], id [2]`,
+右轮 C620 在总线上完全无反馈。为定位真实 ID,用临时扫描固件(仅在 CAN2 额外注册
+`0x204~0x207` 四个监听器,每个 ID 最多打 3 条日志)实测:只有 **`0x205` 有应答**,
+`0x204/0x206/0x207` 全静默。
+
+**判定**。`0x205` 在 DJI 帧定义里同时是 C620 的 ESC5 反馈与 GM6020 的 ID1 反馈;当时
+小 yaw 未接 CAN(配置的小 yaw ID4 也无应答),故判定应答者是右摩擦轮电调,实车拨码为
+**5** 而非配置里的 2。于是右轮目标被写进 `0x200` 的 slot1(无设备接收),右轮不转且不回反馈。
+
+**改动**。`config/sentry_2026/config_shoot.h`:`SHOOT_FRICTION_ID_R 2 → 5`(注释标实测);
+`config/sentry_2026/config.h` 伞头 CAN2 映射改为摩擦轮 ESC1/5;`config_shoot.h` 头注释与
+`.Doc/detail/SENTRY_RM_shaobin2移植说明.md` CAN 表同步。左轮 ESC1、拨盘 ESC3 不变;
+右轮改走 `0x1FF` slot0(C620 的 ESC5-8 分组),与小 yaw(配置 ESC4 走 `0x1FF` slot3)不冲突。
+
+**验证**。改后 `build.ps1 sentry -Current` 成功:FLASH 117496 B / RAM 73784 B /
+CCMRAM 54944 B,`firmware/current.elf` SHA-256
+`7E072C3F31F9C341F8752B8A42A754FFC4F12587572108B60BBC5B5D5C9CE8C8`;已烧录
+(EmberProbe CMSIS-DAP,`Verified OK`)。烧后 RTT 复查:**`bus2/id2` 的 lost 完全消失**
+(右电调在线),仅剩 `bus2/id4`(小 yaw,配置 4 无应答)。临时扫描固件已删除并恢复正式固件。
+
+**未验证**。右轮实体转动与方向待用户给摩擦轮命令确认(若反转需调
+`SHOOT_FRICTION_REVERSE_R`);小 yaw 真实 ID 仍待其 CAN 接通后扫描确认(文档写 1)。
+本次构建基于远端最新 `sentry`(含 DEV-30 导航通信、DEV-31 小陀螺调参)。未上场比赛。
+
+**AI**：DeepSeek Flash(DSH),2026-11-26。
+
+### DEV-20261126-33｜2026-11-26｜[SENTRY] 修正:0x205 是小 yaw(ID1) 非右摩擦轮,回退 ID5
+
+**触发**。DEV-32 按"0x205 是右摩擦轮 ESC5"改配置并烧录后,实车开摩擦轮时**小 yaw 转动、
+两个摩擦轮都不转**。
+
+**判定**。GM6020 的 ID1~4 共用 `0x1FF` 帧的 slot0~slot3,而 C620 的 ESC5~8 也用 `0x1FF`
+slot0~slot3;摩擦轮 ESC5 与 GM6020 ID1 恰好都落在 slot0。改 ID5 后,C620 的电流命令被
+GM6020(ID1)按电压命令执行 → 小 yaw 转。反证:0x205 的应答者是小 yaw,不是右电调;
+右电调在 `0x204~0x207` 全部无应答,说明它当前不在总线上。
+
+**改动**。`SHOOT_FRICTION_ID_R 5 → 2`(回退,并注明该电调当前无反馈、待硬件排查);
+`SENTRY_SMALL_YAW_ESC_ID 4 → 1`(由"摩擦轮命令驱动了小 yaw"反证实测为 ID1);
+`config.h` 伞头注释与 `.Doc/detail/SENTRY_RM_shaobin2移植说明.md` CAN 表同步回
+摩擦轮 ESC1/2、小 yaw ESC1。
+
+**验证**。`build.ps1 sentry -Current` 成功:FLASH 117492 B / RAM 73784 B / CCMRAM 54944 B,
+SHA-256 `F10B8B651610FCC1A33FBA57D5079812401899CED7A8438F8BC7650BBE904A8A`。已烧录
+(EmberProbe CMSIS-DAP,SHA 一致,`Verified OK`)。烧后 RTT:仅剩 `bus2/id2`(右电调,
+确认不在总线上);`bus2/id4` 消失(小 yaw 已按 ID1 注册且在线,无 `id [1]` 丢失),
+左轮 id1、拨盘 id3 均在线。
+
+**待验证**。左轮此前为何也停转(烧回后复测);右电调(按文档应为 ID2)无任何反馈,
+需查 24V 供电、CAN 插头与电调本体。
+
+**AI**：DeepSeek Flash(DSH),2026-11-26。
+
+### DEV-20261126-34｜2026-11-26｜[SENTRY] 左下挡改为拨轮控制发射
+
+**遥控语义**。用户确认左侧三段开关拨到最下挡后，再拨动遥控器侧边拨轮发射。
+左下挡继续控制小 yaw；同时作为发射准备挡，摩擦轮预转。拨轮短拨后单发，进入扳机区
+持续达到 250 ms 后连发，松开时退出连发。其他非急停挡位仍按拨轮触发时开摩擦轮。
+
+**状态机与互锁**。仅调整 `apps/sentry/cmd/cmd_remote.c` 的命令映射；复用既有
+`shoot_task` 发射状态机，保留摩擦轮到速、热量守卫、拨盘堵转保护与命令超时。
+`LOADER_BENCH_ENABLE` 仍为 0，不启用固定转速台架旁路。
+
+**验证状态**。静态检查确认左下挡不再无条件发连发命令，拨轮短拨/长按均生成对应模式；
+未运行测试、未构建、未烧录，遥控器行为待用户实测。开工前先保留本地底盘/yaw 参数改动，
+快进同步 `origin/sentry` 至 `496d731` 后再实施。
+
+**AI**：OpenAI Codex(GPT-6),2026-11-26。

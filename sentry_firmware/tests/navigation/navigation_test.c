@@ -46,7 +46,7 @@ static void navigation_deliver(const uint8_t *bytes, size_t size)
 {
     assert(size <= sizeof(usb_buffer));
     memcpy(usb_buffer, bytes, size);
-    receive_callback((uint32_t)size);
+    receive_callback((uint16_t)size);
 }
 
 static void navigation_complete_tx(void)
@@ -93,9 +93,9 @@ static void print_hex(const uint8_t *bytes, size_t size)
 
 int main(void)
 {
-    nav_frame_t frame = {.type = NAV_MSG_COMMAND, .sequence = 7u, .sample_us = 123456789u,
-                         .value = {0.25f, -0.125f, 0.5f}, .flags = NAV_FLAG_VALID};
-    uint8_t bytes[NAV_FRAME_SIZE];
+    nav_frame_t frame = {.type = SENTRY_NAV_PROTOCOL_MSG_COMMAND, .sequence = 7u, .sample_us = 123456789u,
+                         .value = {0.25f, -0.125f, 0.5f}, .flags = SENTRY_NAV_PROTOCOL_FLAG_VALID};
+    uint8_t bytes[SENTRY_NAV_PROTOCOL_FRAME_SIZE];
     nav_protocol_encode(&frame, bytes);
     /* 输出跨语言黄金向量,由 Python 测试逐字节核对。 */
     print_hex(bytes, sizeof(bytes));
@@ -157,7 +157,7 @@ int main(void)
     autonomy_task();
     assert(!autonomy_get_command(&command));
 
-    frame.flags = NAV_FLAG_VALID;
+    frame.flags = SENTRY_NAV_PROTOCOL_FLAG_VALID;
     frame.sequence++;
     nav_protocol_encode(&frame, bytes);
     now_ms = 500u;
@@ -166,26 +166,26 @@ int main(void)
     autonomy_task();
     assert(!autonomy_get_command(&command));
 
-    frame.type = NAV_MSG_SYNC_REQUEST;
+    frame.type = SENTRY_NAV_PROTOCOL_MSG_SYNC_REQUEST;
     nav_protocol_encode(&frame, bytes);
     navigation_deliver(bytes, sizeof(bytes));
     autonomy_task();
-    assert(tx_length == NAV_FRAME_SIZE);
+    assert(tx_length == SENTRY_NAV_PROTOCOL_FRAME_SIZE);
     nav_parser_t parser = {0};
     nav_frame_t decoded;
     int decoded_count = 0;
     for (unsigned i = 0; i < 32; ++i) decoded_count += nav_protocol_feed(&parser, tx_buffer[i], &decoded);
-    assert(decoded_count == 1 && decoded.type == NAV_MSG_SYNC_RESPONSE && decoded.sample_us == 901000u);
+    assert(decoded_count == 1 && decoded.type == SENTRY_NAV_PROTOCOL_MSG_SYNC_RESPONSE && decoded.sample_us == 901000u);
     navigation_complete_tx();
     feed.big_yaw_rel_deg = 90.0f;
     feed.big_yaw_sample_us = 902000u;
     feed.big_yaw_online = 1u;
     now_ms = 920u;
     autonomy_task();
-    assert(tx_length == NAV_FRAME_SIZE);
+    assert(tx_length == SENTRY_NAV_PROTOCOL_FRAME_SIZE);
     memset(&parser, 0, sizeof(parser));
     for (unsigned i = 0; i < 32; ++i) (void)nav_protocol_feed(&parser, tx_buffer[i], &decoded);
-    assert(decoded.type == NAV_MSG_FEEDBACK && decoded.sample_us == 902000u);
+    assert(decoded.type == SENTRY_NAV_PROTOCOL_MSG_FEEDBACK && decoded.sample_us == 902000u);
     assert(fabsf(decoded.value[0] - 1.5707963f) < 1e-6f);
     navigation_complete_tx();
     unsigned previous = tx_count;

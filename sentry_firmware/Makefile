@@ -126,12 +126,14 @@ components/control/quaternion_ekf.c \
 components/crc/crc8.c \
 components/crc/crc16.c \
 components/math/user_lib.c \
+components/navigation/nav_protocol.c \
 components/calib/calib.c \
 components/imu/bmi088_driver.c \
 components/imu/bmi088_middleware.c \
 components/imu/ins_task.c \
 components/ax650/ax650_pose.c \
 components/ax650/ax650_uart1.c \
+components/ax650/ax650_usb.c \
 components/motor/dji/dji_motor.c \
 components/motor/ht/ht_motor.c \
 components/motor/dm/dm_motor.c \
@@ -264,6 +266,7 @@ C_INCLUDES =  \
 -Icomponents/control \
 -Icomponents/crc \
 -Icomponents/math \
+-Icomponents/navigation \
 -Icomponents/alarm \
 -Icomponents/imu \
 -Icomponents/ax650 \

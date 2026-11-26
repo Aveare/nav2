@@ -51,8 +51,8 @@ static void dm_motor_decode(can_t *motor_can)
     dm_motor_t *motor = (dm_motor_t *)motor_can->id;
     dm_motor_measure_t *measure = &(motor->measure); // 将can实例中保存的id转换成电机实例的指针
 
-    motor->rx_refresh_dt = 0; // 一旦接收到反馈重置计数
     motor->rx_sample_us = (uint64_t)kernel_tick_ms() * 1000u;
+    motor->rx_refresh_dt = 0; // 一旦接收到反馈重置计数
 
     ERR = (rxbuff[0] >> 4) & 0x0F;
     measure->state = ERR; // 解析状态位

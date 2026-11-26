@@ -35,7 +35,7 @@ void usb_transmit(uint8_t *buffer, uint16_t len)
 
 uint8_t usb_try_transmit(uint8_t *buffer, uint16_t len)
 {
-    uint32_t saved = kernel_enter_critical();
+    const uint32_t saved = kernel_enter_critical();
     uint8_t result = USBD_FAIL;
     if (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED && hUsbDeviceFS.pClassData != NULL)
         result = CDC_Transmit_FS(buffer, len);
@@ -45,7 +45,7 @@ uint8_t usb_try_transmit(uint8_t *buffer, uint16_t len)
 
 uint8_t usb_is_transmitting(void)
 {
-    uint32_t saved = kernel_enter_critical();
+    const uint32_t saved = kernel_enter_critical();
     uint8_t busy = 0u;
     if (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED && hUsbDeviceFS.pClassData != NULL)
         busy = ((USBD_CDC_HandleTypeDef *)hUsbDeviceFS.pClassData)->TxState != 0u;

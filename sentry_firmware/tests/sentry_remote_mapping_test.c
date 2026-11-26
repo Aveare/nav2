@@ -76,6 +76,14 @@ int main(void)
     assert(chassis_cmd.wz == 0.0f);
     assert(fabsf(gimbal_cmd.small_yaw_rate_deg_s - SENTRY_SMALL_YAW_STICK_RATE_DEG_S) <
            0.01f);
+    assert(shoot_cmd.shoot_mode == SHOOT_ON);
+    assert(shoot_cmd.friction_mode == FRICTION_ON);
+    assert(shoot_cmd.load_mode == LOADER_BURST);
+
+    test_rc[RC_SLOT_CURRENT].rc.switch_left = REMOTE_RC_SW_MID;
+    cmd_remote_set();
+    assert(shoot_cmd.friction_mode == FRICTION_OFF);
+    assert(shoot_cmd.load_mode == LOADER_STOP);
 
     test_rc[RC_SLOT_CURRENT].rc.switch_right = REMOTE_RC_SW_DOWN;
     cmd_remote_set();
@@ -86,6 +94,6 @@ int main(void)
     cmd_remote_set();
     assert(gimbal_cmd.pitch > 0.0f);
 
-    puts("PASS: sentry RC right-stick translation, left-stick chassis/small-yaw split and spin");
+    puts("PASS: sentry RC movement, left-down fire, small-yaw split and spin");
     return 0;
 }

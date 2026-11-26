@@ -72,7 +72,9 @@ const char *kernel_current_task(void)
 /* ---- 时间:tick 来自调度器;us 来自 DWT(Cortex-M 通用调试外设,归 port) ---- */
 uint32_t kernel_tick_ms(void)
 {
-    return (uint32_t)((kernel_is_in_isr() ? xTaskGetTickCountFromISR() : xTaskGetTickCount()) * portTICK_PERIOD_MS);
+    const TickType_t tick =
+        kernel_is_in_isr() ? xTaskGetTickCountFromISR() : xTaskGetTickCount();
+    return (uint32_t)(tick * portTICK_PERIOD_MS);
 }
 
 uint64_t kernel_time_us(void)

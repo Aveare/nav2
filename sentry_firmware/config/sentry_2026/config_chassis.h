@@ -21,7 +21,7 @@
 /* ---------------- 底盘速度 ---------------- */
 
 #define CHASSIS_MAX_SPEED 1500.0f    /* [待实测] 平移最大速度,mm/s */
-#define CHASSIS_ROTATE_SPEED 150.0f  /* [诊断对照-本地工程] 小陀螺临时半速,deg/s */
+#define CHASSIS_ROTATE_SPEED 195.0f  /* [调参起点-待实测] 小陀螺速度,150 deg/s 的 1.3 倍 */
 #define CHASSIS_FOLLOW_WZ_LIMIT 400.0f /* [待实测] 跟随律 wz 总限幅,deg/s;0=不限 */
 #define CHASSIS_TRANSLATE_BIAS_ANGLE 10.0f /* [实测-部分,本地工程] 小陀螺平移偏置角,deg */
 

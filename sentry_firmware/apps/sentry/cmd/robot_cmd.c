@@ -14,7 +14,6 @@
 
 robot_status_e robot_state; // 机器人整体工作状态
 #include "robot_cmd.h"
-#include "autonomy.h"
 #include "robot_cmd_internal.h"
 // module
 #include "remote_control.h"
@@ -27,6 +26,7 @@ robot_status_e robot_state; // 机器人整体工作状态
 #include "telemetry.h"
 #include "dwt_port.h"
 #include "log_port.h"
+#include "autonomy.h"
 #include <math.h>
 
 /* ---------------- cmd 模块实例与消息 ---------------- */
@@ -150,7 +150,7 @@ void cmd_task(void)
     /* 3. 本车普通挡由操作手直接给底盘 wz,不再使用世界 yaw 目标差分。 */
     chassis_cmd.yaw_rate_cmd = chassis_cmd.wz;
 
-    /* 4. 输入源与旧 AX650 模式 */
+    /* 4. 输入源与 AX650 模式 */
     cmd_update_input_source();
 #if AX650_USB_ENABLE
     ax650_usb_set_mode(REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left)
@@ -195,7 +195,7 @@ void cmd_task(void)
     }
 #endif
 
-    /* 导航只接管底盘;遥控安全仲裁仍在最后执行。右杆推动可回手动。 */
+    /* 导航只接管底盘;遥控安全仲裁仍在最后执行。右杆推动可立即回手动。 */
     if (SENTRY_AUTONOMY_ENABLE &&
         REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left) &&
         REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_right) &&
@@ -203,7 +203,7 @@ void cmd_task(void)
         MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.rocker_r1) <= CHASSIS_RC_DEADBAND)
     {
         sentry_auto_cmd_t navigation;
-        int valid = autonomy_get_command(&navigation);
+        const int valid = autonomy_get_command(&navigation);
         chassis_cmd.chassis_mode = valid ? CHASSIS_NAVIGATION : CHASSIS_ZERO_FORCE;
         chassis_cmd.vx = valid ? navigation.vx : 0.0f;
         chassis_cmd.vy = valid ? navigation.vy : 0.0f;

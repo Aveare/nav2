@@ -76,6 +76,11 @@ static float shoot_friction_target_error(const dji_motor_t *motor, uint8_t rever
 
 static uint8_t shoot_friction_ready(void)
 {
+#if LOADER_BENCH_ENABLE
+    /* 台架:不判摩擦轮——只一个轮转时互锁恒不通过,拨盘 PID 无法整定。摩擦轮目标仍正常下发。
+     * 上场固件必须 LOADER_BENCH_ENABLE=0。 */
+    return 1;
+#else
     if (friction_l == NULL || friction_r == NULL)
         return 0;
     return friction_running && daemon_is_online(friction_l->daemon) &&
@@ -84,6 +89,7 @@ static uint8_t shoot_friction_ready(void)
                SHOOT_FRICTION_READY_TOL_RPM &&
            fabsf(shoot_friction_target_error(friction_r, SHOOT_FRICTION_REVERSE_R)) <=
                SHOOT_FRICTION_READY_TOL_RPM;
+#endif
 }
 
 void shoot_init(void)
@@ -294,8 +300,13 @@ void shoot_task(void)
             }
             if (fire_rate < 0.0f)
                 fire_rate = 0.0f;
+#if LOADER_BENCH_ENABLE
+            /* 台架:固定转速整定拨盘速度环,不跟随射速档(上场固件 LOADER_BENCH_ENABLE=0) */
+            dji_motor_set_ref(loader, LOADER_BENCH_REF_DEG_S);
+#else
             dji_motor_set_ref(loader,
                               fire_rate * SHOOT_ONE_BULLET_DELTA_ANGLE * SHOOT_LOADER_REDUCTION);
+#endif
 
             const float slot_motor =
                 SHOOT_ONE_BULLET_DELTA_ANGLE * SHOOT_LOADER_REDUCTION;
