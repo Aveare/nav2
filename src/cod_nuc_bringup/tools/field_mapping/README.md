@@ -53,9 +53,9 @@ ls -lh /home/rm/maps/test.yaml /home/rm/maps/test.pgm
 
 > 重新保存同名 `test` 会覆盖现有地图。比赛地图需要留档时，先换一个明确名称，例如 `/home/rm/maps/competition_2026_day1`。
 
-## 为新地图重新创建中心点
+## 为新地图记录红、蓝出生点
 
-中心点属于地图的 `map` 坐标系。只要重新建图或更换地图，就应使用新的中心点 CSV，不能直接沿用旧坐标。
+出生点属于地图的 `map` 坐标系。地图只需要建并保存一次；随后在同一张 `test` 地图上分别点击红方和蓝方出生位置。只要重新建图或更换地图，就必须重新记录两个出生点，不能直接沿用旧坐标。
 
 先停止建图并用新地图启动定位与 RViz，确认 RViz 的 **Fixed Frame** 为 `map`。在新终端运行：
 
@@ -64,16 +64,29 @@ source /opt/ros/humble/setup.bash
 source ~/cod_ws/install/setup.bash
 
 ros2 run cod_nuc_bringup record_center_point.py \
-  --output /home/rm/maps/test_center.csv \
+  --output /home/rm/maps/test_red_spawn.csv \
   --yaw-deg 0
+
+ros2 run cod_nuc_bringup record_center_point.py \
+  --output /home/rm/maps/test_blue_spawn.csv \
+  --yaw-deg 180
 ```
 
-保持终端等待，在 RViz 顶部选择 **Publish Point**，然后在期望的场地中心单击一次。终端显示“中心点已保存”后完成。
+每次启动一个记录命令并保持终端等待，在 RViz 顶部选择 **Publish Point**，然后在对应颜色的出生位置单击一次。终端显示“中心点已保存”后，再启动另一颜色的记录命令。
 
-- `--yaw-deg 0` 表示车头指向 `map` 正 X，按需要改为其他角度。
+- `--yaw-deg 0` 表示车头指向 `map` 正 X；`180` 表示指向 `map` 负 X。应根据实际地图方向调整。
 - 文件已存在时工具会拒绝覆盖。确认要重标后才增加 `--force`。
-- 不要用 **2D Pose Estimate** 记录中心点，它会修改机器人初始定位。
-- 不要用 **Nav2 Goal** 记录中心点，它会发起真实导航任务。
+- 不要用 **2D Pose Estimate** 记录出生点，它会修改机器人初始定位。
+- 不要用 **Nav2 Goal** 记录出生点，它会发起真实导航任务。
+
+桌面快捷脚本为：
+
+```text
+06A_RViz点击并保存红方出生点.sh
+06B_RViz点击并保存蓝方出生点.sh
+```
+
+快捷脚本会自动备份同名旧文件，再等待一次 `Publish Point` 点击。可选场地中心点仍使用原有 `06_RViz点击并保存test中心点.sh`。
 
 需要在 RViz 中同时确定位置和车头方向时，可使用 **Add Waypoint**：在中心点按下鼠标，拖向期望的车头方向，松开后在 `WaypointEditorPanel` 中点击 **Save WPs**，保存为 `/home/rm/maps/test_center.csv`。
 
