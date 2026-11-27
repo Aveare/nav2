@@ -1,6 +1,6 @@
 /**
  * @file    ax650_pose.c
- * @brief   AX650 姿态帧编解码:0x1021/0x1022 打包与 0x0503 解析
+ * @brief   RMCV 姿态帧编解码:0x1021/0x1022 打包与 0x0503 解析
  * @layer   COMPONENT
  * @author  modified by 小猫大王
 * @note    不发送结构体，避免对齐填充与主机字节序改变协议布局。
@@ -272,7 +272,7 @@ size_t ax650_full_pose_pack(uint8_t *out, size_t capacity, const ax650_full_pose
 
     memset(out, 0, AX650_FULL_POSE_FRAME_SIZE);
     out[0] = AX650_SOF;
-    ax650_pose_write_u16(out + 1u, 52u); // [协议] 0x1022 payload 固定 52 B
+    ax650_pose_write_u16(out + 1u, 52u);
     out[3] = sequence;
     out[4] = ax650_pose_crc8(out, 4u);
     ax650_pose_write_u16(out + 5u, 0x1022u);

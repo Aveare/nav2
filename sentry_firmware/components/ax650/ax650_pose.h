@@ -15,16 +15,16 @@
 #define AX650_FULL_POSE_FRAME_SIZE 61u  // [协议] 0x1022 整帧字节数，可装入 USB FS 64 B 包
 #define AX650_RX_BUFFER_SIZE       256u // [协议] 流式接收缓存，容纳粘包和分片
 
-#define AX650_POSE_VALID_IMU             (1u << 0)
-#define AX650_POSE_VALID_BIG_YAW         (1u << 1)
-#define AX650_POSE_VALID_SMALL_YAW       (1u << 2)
-#define AX650_POSE_VALID_PITCH           (1u << 3)
-#define AX650_POSE_CALIBRATED_SMALL_YAW  (1u << 4)
-#define AX650_POSE_CALIBRATED_PITCH      (1u << 5)
+#define AX650_POSE_VALID_IMU              (1u << 0)
+#define AX650_POSE_VALID_BIG_YAW          (1u << 1)
+#define AX650_POSE_VALID_SMALL_YAW        (1u << 2)
+#define AX650_POSE_VALID_PITCH            (1u << 3)
+#define AX650_POSE_CALIBRATED_SMALL_YAW   (1u << 4)
+#define AX650_POSE_CALIBRATED_PITCH       (1u << 5)
 #define AX650_POSE_VALID_PROJECTILE_SPEED (1u << 6)
-#define AX650_POSE_VALID_ROBOT_ID        (1u << 7)
-#define AX650_POSE_AUTO_AIM_ALLOWED      (1u << 8)
-#define AX650_POSE_GIMBAL_ONLINE         (1u << 9)
+#define AX650_POSE_VALID_ROBOT_ID         (1u << 7)
+#define AX650_POSE_AUTO_AIM_ALLOWED       (1u << 8)
+#define AX650_POSE_GIMBAL_ONLINE          (1u << 9)
 
 typedef struct
 {
@@ -42,18 +42,18 @@ typedef struct
 /** 0x1022 完整云台姿态的主机无关输入快照。 */
 typedef struct
 {
-    float q_wxyz[4];                 // 大 yaw 平台 IMU 到世界系主动旋转,无量纲
-    float big_yaw_rel_rad;           // 大 yaw 相对底盘机械零位,rad
-    float small_yaw_rad;             // 小 yaw 相对机械中位,rad
-    float pitch_rad;                 // pitch 相对本次机械参考位,rad
-    float projectile_speed_mps;      // 弹丸初速,m/s
-    uint32_t imu_sample_time_ms;      // IMU 样本 MCU tick,ms
-    uint32_t big_yaw_sample_time_ms;  // 大 yaw CAN 样本 MCU tick,ms
-    uint32_t small_yaw_sample_time_ms;// 小 yaw 快照 MCU tick,ms
-    uint32_t pitch_sample_time_ms;    // pitch CAN 样本 MCU tick,ms
-    uint16_t valid_flags;             // AX650_POSE_* 位标志
-    uint8_t program_mode;             // AX650 ProgramMode 原始枚举,无量纲
-    uint8_t robot_id;                 // 裁判系统本车 ID,无量纲
+    float q_wxyz[4];                  // 大 yaw 平台 IMU 到世界系主动旋转,无量纲
+    float big_yaw_rel_rad;            // 大 yaw 相对底盘机械零位,rad
+    float small_yaw_rad;              // 小 yaw 相对机械中位,rad
+    float pitch_rad;                  // pitch 相对本次机械参考位,rad
+    float projectile_speed_mps;       // 弹丸初速,m/s
+    uint32_t imu_sample_time_ms;       // IMU 样本 MCU tick,ms
+    uint32_t big_yaw_sample_time_ms;   // 大 yaw CAN 样本 MCU tick,ms
+    uint32_t small_yaw_sample_time_ms; // 小 yaw 快照 MCU tick,ms
+    uint32_t pitch_sample_time_ms;     // pitch CAN 样本 MCU tick,ms
+    uint16_t valid_flags;              // AX650_POSE_* 位标志
+    uint8_t program_mode;              // RMCV ProgramMode 原始枚举,无量纲
+    uint8_t robot_id;                  // 裁判系统本车 ID,无量纲
 } ax650_full_pose_t;
 
 typedef struct
