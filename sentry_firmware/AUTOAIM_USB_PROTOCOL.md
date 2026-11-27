@@ -6,7 +6,7 @@
 
 自瞄不要再设计一套新的目标字段。STM32 工程已经实现并测试了 AX650/RMCV 的两类二进制消息：
 
-- STM32 → 自瞄：`0x1021` 姿态与弹速；
+- STM32 → 自瞄：`0x1022` 大 yaw IMU、三轴关节姿态与弹速；旧 `0x1021` 仅兼容；
 - 自瞄 → STM32：`0x0503` 目标角、角速度、角加速度和目标状态。
 
 迁移到 USB 虚拟串口时，保留这两类帧的字节布局、单位、CRC 和超时语义，只替换底层传输端口。导航仍使用 `NAVIGATION_USB.md` 中的 `NV` 帧。
@@ -51,9 +51,9 @@ NV 帧：导航速度、平台角度、测时
 
 ## 3. STM32 发送给自瞄程序
 
-### 3.1 `0x1021` 姿态帧
+### 3.1 `0x1021` 旧姿态帧与 `0x1022` 完整姿态帧
 
-现有代码：`components/ax650/ax650_pose.c::ax650_pose_pack()`。
+完整布局以 `.Doc/spec/NUC-STM32导航与自瞄USB串口协议.md` 第 11 节为准。当前 USB 使用 `ax650_full_pose_pack()` 生成 61 B `0x1022`；`ax650_pose_pack()` 只保留旧 `0x1021` 兼容。
 
 数据区长度 22 字节，整帧 31 字节，建议 100 Hz 发送。
 
@@ -73,7 +73,7 @@ NV 帧：导航速度、平台角度、测时
 
 ### 3.2 建议后续增加的状态反馈
 
-首轮联调可只用 `0x1021`。正式比赛前建议再增加一类状态帧，但命令号尚未分配，不能直接写死：
+首轮联调必须确认 `0x1022` 的 IMU、小 yaw、pitch 有效位。正式比赛前建议再增加一类状态帧，但命令号尚未分配，不能直接写死：
 
 - 最近有效 `0x0503` 的序号和接收计数；
 - 自瞄链路在线/超时；
@@ -145,7 +145,7 @@ NV 帧：导航速度、平台角度、测时
 | 方向 | 话题 | 类型 | 频率/说明 |
 |---|---|---|---|
 | 自瞄 → 网关 | `/autoaim/target` | `rm_interfaces/msg/AutoAimTarget` | 收到后转成 `0x0503`；网关固定 100 Hz 下发 |
-| 网关 → 自瞄 | `/autoaim/pose` | `rm_interfaces/msg/AutoAimPose` | STM32 以 100 Hz 准备 `0x1021`；USB 忙时顺延 |
+| 网关 → 自瞄 | `/autoaim/pose` | `rm_interfaces/msg/AutoAimPose` | STM32 以 100 Hz 准备 `0x1022`；USB 忙时顺延 |
 
 `AutoAimTarget` 字段与 4.1 的数据区一一对应；`header` 当前仅供自瞄节点自行记录，网关的 100 ms 新鲜度判断使用本机收到话题的单调时间。`AutoAimPose.header.stamp` 是 MCU 采样时间经 `NV` 测时映射后的 ROS 时间，`header.frame_id` 为 `gimbal_imu`。
 
@@ -179,7 +179,7 @@ ros2 launch cod_nuc_bringup nuc_hardware.launch.py \
 
 ## 7. 最小联调顺序
 
-1. 只接收 `0x1021`，核对 yaw/pitch/roll 零位、正方向、单位和 100 Hz 周期；
+1. 只接收 `0x1022`，核对 IMU 四元数、三轴关节角、有效位、单位和 100 Hz 周期；
 2. 回环发送 `target_id=0、shoot=0` 的 `0x0503`，确认计数增长且云台不动作；
 3. 先只给小角度 yaw，再给 pitch，检查双 yaw 分配和限位；
 4. 断开 USB，确认 100 ms 后自瞄命令失效且绝不发弹；
@@ -191,7 +191,7 @@ ros2 launch cod_nuc_bringup nuc_hardware.launch.py \
 ## 8. 已完成的软件验证
 
 - Python 对 CRC8、CRC16、分包、坏帧重同步和双向字段进行单元测试；
-- C 与 Python 对 `NV`、`0x0503`、`0x1021` 三类帧逐字节黄金向量一致；
+- C 与 Python 对 `NV`、`0x0503`、`0x1022` 三类帧逐字节黄金向量一致；
 - 固件测试覆盖共享 USB 忙状态、分片接收和 100 ms 命令超时；
 - ROS 2 伪终端测试覆盖目标使能、目标超时、无目标帧和分片姿态上报；
 - STM32F407 ARM Debug 全量编译、链接通过。

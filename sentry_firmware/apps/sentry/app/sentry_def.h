@@ -29,12 +29,16 @@ typedef struct
     float big_yaw_world_deg;   // 大 yaw 世界角,deg
     float big_yaw_rel_deg;     // 大 yaw 相对底盘机械零位,deg(±180)
     float small_yaw_rel_deg;   // 小 yaw 相对机械中位,deg
-    float pitch_deg;           // pitch IMU 角,deg
+    float pitch_deg;           // pitch 相对本次机械参考位,deg
     float big_yaw_torque_nm;   // 大 yaw 当前力矩指令,N·m
     uint8_t big_yaw_state;     // DM 状态位(dm_motor_err_state_e)
     uint8_t pitch_state;       // DM 状态位
     uint8_t big_yaw_online;    // 1=DM 反馈新鲜
+    uint8_t small_yaw_online;  // 1=GM6020 反馈新鲜
+    uint8_t pitch_online;      // 1=pitch DM 反馈新鲜
     uint64_t big_yaw_sample_us; // 大 yaw CAN 反馈进入 MCU 的采样时间
+    uint64_t small_yaw_sample_us; // 小 yaw 快照时间,MCU us
+    uint64_t pitch_sample_us;     // pitch CAN 反馈进入 MCU 的采样时间
 } sentry_gimbal_feed_t;
 
 /* chassis → cmd:轮速逆解估计与模式快照 */

@@ -484,6 +484,8 @@ void gimbal_task(void)
     const float big_position = gimbal_big_yaw_position_rad();
     const uint64_t big_yaw_sample_us =
         (big_yaw_motor != NULL) ? big_yaw_motor->rx_sample_us : 0u;
+    const uint64_t pitch_sample_us =
+        (pitch_motor != NULL) ? pitch_motor->rx_sample_us : 0u;
     kernel_exit_critical(sample_saved);
     if (gimbal_imu_data != NULL)
         gimbal_fb.imu = *gimbal_imu_data;
@@ -501,7 +503,13 @@ void gimbal_task(void)
     gimbal_fb.pitch_state = (pitch_motor != NULL) ? pitch_motor->measure.state : 0u;
     gimbal_fb.big_yaw_state = (big_yaw_motor != NULL) ? big_yaw_motor->measure.state : 0u;
     gimbal_fb.big_yaw_online = gimbal_dm_feedback_fresh(big_yaw_motor);
+    gimbal_fb.small_yaw_online =
+        (small_yaw_motor != NULL) && daemon_is_online(small_yaw_motor->daemon);
+    gimbal_fb.pitch_online = gimbal_dm_feedback_fresh(pitch_motor);
     gimbal_fb.big_yaw_sample_us = big_yaw_sample_us;
+    /* DJI 电机未保存 CAN 回调时刻；在线时用本拍快照时间，离线由有效位拒绝。 */
+    gimbal_fb.small_yaw_sample_us = (uint64_t)kernel_tick_ms() * 1000u;
+    gimbal_fb.pitch_sample_us = pitch_sample_us;
     msg_publish(gimbal_pub, &gimbal_fb);
 
 #if GIMBAL_VOFA_UART1_ENABLE

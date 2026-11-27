@@ -5,9 +5,11 @@ import struct
 
 SOF = 0xA5
 POSE_COMMAND = 0x1021
+FULL_POSE_COMMAND = 0x1022
 TARGET_COMMAND = 0x0503
 MAX_PAYLOAD = 64
 POSE_PAYLOAD = struct.Struct('<ffffBIB')
+FULL_POSE_PAYLOAD = struct.Struct('<ffffffffIIIIHBB')
 TARGET_PAYLOAD = struct.Struct('<fffffffBB')
 
 
@@ -51,6 +53,41 @@ class PoseFrame:
         payload = POSE_PAYLOAD.pack(self.yaw, self.pitch, self.roll, self.projectile_speed,
                                     self.mode, self.sample_time_ms & 0xffffffff, self.robot_id)
         return encode_frame(POSE_COMMAND, self.sequence, payload)
+
+
+@dataclass(frozen=True)
+class FullPoseFrame:
+    sequence: int
+    q_w: float
+    q_x: float
+    q_y: float
+    q_z: float
+    big_yaw_rel: float
+    small_yaw: float
+    pitch: float
+    projectile_speed: float
+    imu_sample_time_ms: int
+    big_yaw_sample_time_ms: int
+    small_yaw_sample_time_ms: int
+    pitch_sample_time_ms: int
+    valid_flags: int
+    mode: int
+    robot_id: int
+
+    @property
+    def sample_time_ms(self):
+        return self.imu_sample_time_ms
+
+    def encode(self):
+        payload = FULL_POSE_PAYLOAD.pack(
+            self.q_w, self.q_x, self.q_y, self.q_z,
+            self.big_yaw_rel, self.small_yaw, self.pitch, self.projectile_speed,
+            self.imu_sample_time_ms & 0xffffffff,
+            self.big_yaw_sample_time_ms & 0xffffffff,
+            self.small_yaw_sample_time_ms & 0xffffffff,
+            self.pitch_sample_time_ms & 0xffffffff,
+            self.valid_flags & 0xffff, self.mode, self.robot_id)
+        return encode_frame(FULL_POSE_COMMAND, self.sequence, payload)
 
 
 @dataclass(frozen=True)
@@ -117,6 +154,13 @@ class Parser:
                 if all(math.isfinite(value) for value in (yaw, pitch, roll, speed)):
                     frames.append(PoseFrame(raw[3], sample_ms, yaw, pitch, roll, speed,
                                             mode, robot_id))
+            elif command == FULL_POSE_COMMAND and payload_size == FULL_POSE_PAYLOAD.size:
+                values = FULL_POSE_PAYLOAD.unpack(raw[7:-2])
+                floats = values[:8]
+                norm2 = sum(value * value for value in floats[:4])
+                if (all(math.isfinite(value) for value in floats) and norm2 > 1e-12 and
+                        values[12] & 0xfc00 == 0):
+                    frames.append(FullPoseFrame(raw[3], *values))
             elif command == TARGET_COMMAND and payload_size == TARGET_PAYLOAD.size:
                 values = TARGET_PAYLOAD.unpack(raw[7:-2])
                 target = TargetFrame(raw[3], *values)

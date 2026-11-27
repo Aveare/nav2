@@ -169,9 +169,57 @@ static void TestPose(void)
     }
 }
 
+static uint32_t GetU32(const uint8_t *in)
+{
+    return (uint32_t)in[0] | ((uint32_t)in[1] << 8) | ((uint32_t)in[2] << 16) |
+           ((uint32_t)in[3] << 24);
+}
+
+static void TestFullPose(void)
+{
+    ax650_full_pose_t pose = {
+        .q_wxyz = {2.0f, 0.0f, 0.0f, 0.0f},
+        .big_yaw_rel_rad = 0.25f,
+        .small_yaw_rad = -0.5f,
+        .pitch_rad = 0.125f,
+        .projectile_speed_mps = 24.5f,
+        .imu_sample_time_ms = 100u,
+        .big_yaw_sample_time_ms = 101u,
+        .small_yaw_sample_time_ms = 102u,
+        .pitch_sample_time_ms = 103u,
+        .valid_flags = AX650_POSE_VALID_IMU | AX650_POSE_VALID_BIG_YAW |
+                       AX650_POSE_VALID_SMALL_YAW | AX650_POSE_VALID_PITCH,
+        .program_mode = 1u,
+        .robot_id = 107u,
+    };
+    uint8_t frame[AX650_FULL_POSE_FRAME_SIZE];
+    assert(ax650_full_pose_pack(frame, sizeof(frame), &pose, 255u) == sizeof(frame));
+    assert(frame[0] == 0xA5u && frame[1] == 52u && frame[2] == 0u);
+    assert(frame[3] == 255u && frame[4] == ax650_pose_crc8(frame, 4u));
+    assert(frame[5] == 0x22u && frame[6] == 0x10u);
+    assert(GetFloat(frame + 7u) == 1.0f);
+    assert(GetFloat(frame + 23u) == 0.25f);
+    assert(GetFloat(frame + 27u) == -0.5f);
+    assert(GetFloat(frame + 31u) == 0.125f);
+    assert(GetFloat(frame + 35u) == 24.5f);
+    assert(GetU32(frame + 39u) == 100u && GetU32(frame + 51u) == 103u);
+    assert(frame[55] == 0x0Fu && frame[56] == 0u);
+    assert(frame[57] == 1u && frame[58] == 107u);
+    assert(((uint16_t)frame[59] | ((uint16_t)frame[60] << 8)) ==
+           ax650_pose_crc16(frame, 59u));
+
+    pose.valid_flags = 0x8000u;
+    assert(ax650_full_pose_pack(frame, sizeof(frame), &pose, 0u) == 0u);
+    pose.valid_flags = AX650_POSE_VALID_IMU;
+    pose.small_yaw_rad = NAN;
+    assert(ax650_full_pose_pack(frame, sizeof(frame), &pose, 0u) == 0u);
+    assert(ax650_full_pose_pack(frame, sizeof(frame) - 1u, &pose, 0u) == 0u);
+}
+
 int main(void)
 {
     TestPose();
+    TestFullPose();
     TestCommandParser();
     puts("PASS: pose TX plus fragmented/sticky/corrupt AX650 command RX");
     return 0;

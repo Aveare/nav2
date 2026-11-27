@@ -31,14 +31,16 @@ static nav_parser_t parser;
 static sentry_auto_cmd_t auto_cmd;
 static uint32_t auto_last_ms, auto_sequence;
 static uint8_t has_command;
-static uint8_t tx_buffer[SENTRY_NAV_PROTOCOL_FRAME_SIZE];
+static uint8_t tx_buffer[64u]; // [协议] USB FS 单包，容纳 61 B 的 RMCV 0x1022
 static msg_sub_t gimbal_feed_sub;
 static sentry_gimbal_feed_t gimbal_feed;
 static uint32_t feedback_last_ms, feedback_sequence;
 static uint64_t feedback_last_sample;
 
-_Static_assert(AX650_POSE_FRAME_SIZE <= SENTRY_NAV_PROTOCOL_FRAME_SIZE,
-               "shared USB TX buffer is too small");
+_Static_assert(AX650_FULL_POSE_FRAME_SIZE <= sizeof(tx_buffer),
+               "0x1022 must fit in one USB FS packet");
+_Static_assert(SENTRY_NAV_PROTOCOL_FRAME_SIZE <= sizeof(tx_buffer),
+               "navigation frame exceeds shared USB TX buffer");
 
 static void autonomy_usb_receive(uint16_t length)
 {
@@ -133,6 +135,23 @@ void autonomy_task(void)
 
     (void)msg_recv(gimbal_feed_sub, &gimbal_feed);
     const uint32_t now = kernel_tick_ms();
+    uint16_t pose_flags = AX650_POSE_CALIBRATED_SMALL_YAW;
+    if (gimbal_feed.big_yaw_online)
+        pose_flags |= AX650_POSE_VALID_BIG_YAW;
+    if (gimbal_feed.small_yaw_online)
+        pose_flags |= AX650_POSE_VALID_SMALL_YAW;
+    if (gimbal_feed.pitch_online)
+        pose_flags |= AX650_POSE_VALID_PITCH;
+    if (gimbal_feed.big_yaw_online && gimbal_feed.small_yaw_online &&
+        gimbal_feed.pitch_online)
+        pose_flags |= AX650_POSE_GIMBAL_ONLINE;
+    ax650_usb_update_gimbal(
+        gimbal_feed.big_yaw_rel_deg * 0.01745329252f,
+        gimbal_feed.small_yaw_rel_deg * 0.01745329252f,
+        gimbal_feed.pitch_deg * 0.01745329252f,
+        (uint32_t)(gimbal_feed.big_yaw_sample_us / 1000u),
+        (uint32_t)(gimbal_feed.small_yaw_sample_us / 1000u),
+        (uint32_t)(gimbal_feed.pitch_sample_us / 1000u), pose_flags);
     if (now - feedback_last_ms >= SENTRY_NAVIGATION_FEEDBACK_PERIOD_MS &&
         gimbal_feed.big_yaw_sample_us != feedback_last_sample)
     {

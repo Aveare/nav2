@@ -1,6 +1,6 @@
 /**
  * @file    ax650_pose.c
- * @brief   AX650 姿态帧编解码:0x1021 打包与 0x0503 解析
+ * @brief   AX650 姿态帧编解码:0x1021/0x1022 打包与 0x0503 解析
  * @layer   COMPONENT
  * @author  modified by 小猫大王
 * @note    不发送结构体，避免对齐填充与主机字节序改变协议布局。
@@ -184,6 +184,30 @@ static void ax650_pose_write_u32(uint8_t *data, uint32_t value)
     data[3] = (uint8_t)(value >> 24);
 }
 
+static void ax650_pose_write_u16(uint8_t *data, uint16_t value)
+{
+    data[0] = (uint8_t)value;
+    data[1] = (uint8_t)(value >> 8);
+}
+
+static int ax650_pose_normalize_quaternion(const float input[4], float output[4])
+{
+    float norm_squared = 0.0f;
+    for (size_t i = 0; i < 4u; ++i)
+    {
+        output[i] = input[i];
+        if (!ax650_pose_float_is_finite(output[i]))
+            return 0;
+        norm_squared += output[i] * output[i];
+    }
+    if (!ax650_pose_float_is_finite(norm_squared) || norm_squared < 1e-12f)
+        return 0;
+    const float inverse_norm = 1.0f / sqrtf(norm_squared);
+    for (size_t i = 0; i < 4u; ++i)
+        output[i] *= inverse_norm;
+    return 1;
+}
+
 size_t ax650_pose_pack(uint8_t *out, size_t capacity, const float q_wxyz[4], float speed_mps,
                       uint8_t mode, uint8_t sequence, uint32_t sample_time_ms, uint8_t robot_id)
 {
@@ -191,19 +215,8 @@ size_t ax650_pose_pack(uint8_t *out, size_t capacity, const float q_wxyz[4], flo
         !ax650_pose_float_is_finite(speed_mps) || speed_mps < 0.0f)
         return 0u;
     float q[4];
-    float norm_squared = 0.0f;
-    for (size_t i = 0; i < 4u; ++i)
-    {
-        q[i] = q_wxyz[i];
-        if (!ax650_pose_float_is_finite(q[i]))
-            return 0u;
-        norm_squared += q[i] * q[i];
-    }
-    if (!ax650_pose_float_is_finite(norm_squared) || norm_squared < 1e-12f)
+    if (!ax650_pose_normalize_quaternion(q_wxyz, q))
         return 0u;
-    const float inverse_norm = 1.0f / sqrtf(norm_squared);
-    for (size_t i = 0; i < 4u; ++i)
-        q[i] *= inverse_norm;
     const float w = q[0], x = q[1], y = q[2], z = q[3];
     const float r01 = 2.0f * (x * y - w * z);
     const float r11 = 1.0f - 2.0f * (x * x + z * z);
@@ -240,4 +253,43 @@ size_t ax650_pose_pack(uint8_t *out, size_t capacity, const float q_wxyz[4], flo
     out[29] = (uint8_t)crc;
     out[30] = (uint8_t)(crc >> 8);
     return AX650_POSE_FRAME_SIZE;
+}
+
+size_t ax650_full_pose_pack(uint8_t *out, size_t capacity, const ax650_full_pose_t *pose,
+                           uint8_t sequence)
+{
+    if (out == NULL || pose == NULL || capacity < AX650_FULL_POSE_FRAME_SIZE ||
+        !ax650_pose_float_is_finite(pose->big_yaw_rel_rad) ||
+        !ax650_pose_float_is_finite(pose->small_yaw_rad) ||
+        !ax650_pose_float_is_finite(pose->pitch_rad) ||
+        !ax650_pose_float_is_finite(pose->projectile_speed_mps) ||
+        pose->projectile_speed_mps < 0.0f || (pose->valid_flags & 0xFC00u) != 0u)
+        return 0u;
+
+    float q[4];
+    if (!ax650_pose_normalize_quaternion(pose->q_wxyz, q))
+        return 0u;
+
+    memset(out, 0, AX650_FULL_POSE_FRAME_SIZE);
+    out[0] = AX650_SOF;
+    ax650_pose_write_u16(out + 1u, 52u); // [协议] 0x1022 payload 固定 52 B
+    out[3] = sequence;
+    out[4] = ax650_pose_crc8(out, 4u);
+    ax650_pose_write_u16(out + 5u, 0x1022u);
+    for (size_t i = 0; i < 4u; ++i)
+        ax650_pose_write_float(out + 7u + i * 4u, q[i]);
+    ax650_pose_write_float(out + 23u, pose->big_yaw_rel_rad);
+    ax650_pose_write_float(out + 27u, pose->small_yaw_rad);
+    ax650_pose_write_float(out + 31u, pose->pitch_rad);
+    ax650_pose_write_float(out + 35u, pose->projectile_speed_mps);
+    ax650_pose_write_u32(out + 39u, pose->imu_sample_time_ms);
+    ax650_pose_write_u32(out + 43u, pose->big_yaw_sample_time_ms);
+    ax650_pose_write_u32(out + 47u, pose->small_yaw_sample_time_ms);
+    ax650_pose_write_u32(out + 51u, pose->pitch_sample_time_ms);
+    ax650_pose_write_u16(out + 55u, pose->valid_flags);
+    out[57] = pose->program_mode;
+    out[58] = pose->robot_id;
+    const uint16_t crc = ax650_pose_crc16(out, 59u);
+    ax650_pose_write_u16(out + 59u, crc);
+    return AX650_FULL_POSE_FRAME_SIZE;
 }

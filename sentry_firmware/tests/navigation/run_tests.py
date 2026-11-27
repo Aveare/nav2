@@ -11,7 +11,7 @@ for candidate in (root.parent/'src/cod_nuc_bringup/scripts',
         sys.path.insert(0, str(candidate))
         break
 from nav_wire import Frame, COMMAND
-from rmcv_wire import PoseFrame, TargetFrame
+from rmcv_wire import FullPoseFrame, TargetFrame
 
 with tempfile.TemporaryDirectory(prefix='sentry_nav_') as build:
     for feedback_only in (True, False):
@@ -33,8 +33,11 @@ with tempfile.TemporaryDirectory(prefix='sentry_nav_') as build:
             expected_nav = Frame(COMMAND, 7, 123456789, (.25, -.125, .5), 1).encode().hex()
             expected_target = TargetFrame(3, 30.0, -5.0, .25, -.125, 1.0, -2.0,
                                           4.5, 1, 3).encode().hex()
-            expected_pose = PoseFrame(0, 950, 0.0, 0.0, 0.0, 0.0, 0, 0).encode().hex()
+            expected_pose = FullPoseFrame(
+                0, 1.0, 0.0, 0.0, 0.0,
+                12.0 * 0.01745329252, -3.0 * 0.01745329252, 8.0 * 0.01745329252,
+                0.0, 950, 949, 948, 947, 0x021f, 0, 0).encode().hex()
             assert result[0] == expected_nav, (result[0], expected_nav)
             assert result[1] == expected_target, (result[1], expected_target)
             assert result[2] == expected_pose, (result[2], expected_pose)
-            print(mode+' '+' '.join(flags)+': '+result[3]+'; NV/0x0503/0x1021 C/Python bytes match')
+            print(mode+' '+' '.join(flags)+': '+result[3]+'; NV/0x0503/0x1022 C/Python bytes match')

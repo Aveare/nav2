@@ -1,6 +1,6 @@
 # NUC—STM32 导航与自瞄 USB 串口协议总表
 
-> 审计日期：2026-11-26（Asia/Shanghai）；导航/电控基线：`Aveare/nav2@aad23e1`；
+> 审计日期：2026-11-27（Asia/Shanghai）；导航/电控基线：`Aveare/nav2@4112bd8`；
 > SP25 基线：`Aveare/sp25-nuc@202d16e`；
 > 状态：现行协议的源码审计结果；未烧录、未完成实体 USB、云台或底盘闭环验收。
 
@@ -16,7 +16,7 @@
 | 2 | STM32 → NUC | `NV v1` | `FEEDBACK=2` | 32 B | ≤50 Hz | 大 yaw 相对底盘角 |
 | 3 | NUC → STM32 | `NV v1` | `SYNC_REQUEST=3` | 32 B | 2 Hz | MCU—ROS 软件测时请求 |
 | 4 | STM32 → NUC | `NV v1` | `SYNC_RESPONSE=4` | 32 B | 请求触发 | MCU—ROS 软件测时响应 |
-| 5 | STM32 → NUC | RMCV `0xA5` | `0x1021` | 31 B | ≤100 Hz | 大 yaw 平台 IMU 姿态、模式、弹速、机器人 ID |
+| 5 | STM32 → NUC | RMCV `0xA5` | `0x1022` | 61 B | ≤100 Hz | 大 yaw IMU、三轴关节角、采样时间和有效位 |
 | 6 | NUC → STM32 | RMCV `0xA5` | `0x0503` | 39 B | 100 Hz | 自瞄目标角、角速度、角加速度、距离和发射请求 |
 
 没有其他现行 USB CDC 业务帧。以下内容不属于这根 USB 串口：
@@ -182,7 +182,7 @@ STM32 不是回显请求中的主机时间，而是写入本机处理时刻。�
 
 NUC Python 接收端把 payload 上限限制为 64 B；STM32 缓冲更大，但双端新增消息仍必须遵守 64 B 共同上限。未知命令号在 CRC 和长度正确后整帧跳过，不会被解释成已知命令。
 
-### 5.2 `0x1021`：STM32 姿态上行
+### 5.2 `0x1021`：旧 STM32 姿态上行（保留兼容）
 
 payload 22 B，整帧 31 B：
 
@@ -196,7 +196,7 @@ payload 22 B，整帧 31 B：
 | 17 | 4 | `uint32` | `sample_time_ms` | INS 更新后读取的 MCU `kernel_tick_ms()` |
 | 21 | 1 | `uint8` | `robot_id` | 裁判系统本车 ID；当前固定为 0 |
 
-当前姿态来源：
+旧姿态来源：
 
 ```text
 BMI088 → EKF INS q[w,x,y,z]
@@ -213,7 +213,7 @@ R = Rz(yaw) × Rx(pitch) × Ry(roll)
 
 接近 ZXY 的 `pitch=±90°` 奇异点时，打包函数拒绝发送该姿态。`sequence` 只有成功生成帧后才递增；USB 忙时姿态帧会顺延，不保证严格 100 Hz。
 
-重要限制：`SENTRY_IMU_AFTER_SMALL_YAW=0`，BMI088 安装在大 yaw 平台。因此现行 `0x1021` 只表示大 yaw 平台姿态，不含小 yaw 编码器和 pitch 编码器，不是完整枪管或相机姿态。
+重要限制：`SENTRY_IMU_AFTER_SMALL_YAW=0`，BMI088 安装在大 yaw 平台。因此 `0x1021` 只表示大 yaw 平台姿态，不含小 yaw 编码器和 pitch 编码器，不是完整枪管或相机姿态。NUC 仍能解析旧帧，但 SP25 完整枪管姿态路径会拒绝用它做标定或自瞄。
 
 NUC 发布：
 
@@ -235,7 +235,11 @@ ROS 消息字段映射：
 | `mode` | `program_mode` |
 | `robot_id` | 当前 0 |
 
-### 5.3 `0x0503`：NUC 自瞄目标下行
+### 5.3 `0x1022`：当前完整云台姿态上行
+
+当前 USB 上行使用 61 B 的 `0x1022`，完整字节布局和枪管旋转链见第 11 节。NUC 映射到原有 `/autoaim/pose`，并新增 `full_pose`、`big_yaw_quaternion`、`big_yaw_rel`、`small_yaw`、`barrel_pitch`、三路关节采样时间和 `valid_flags` 字段。为兼容旧消费者，NUC 同时由四元数计算并填写旧的 `yaw/pitch/roll` 字段。
+
+### 5.4 `0x0503`：NUC 自瞄目标下行
 
 payload 30 B，整帧 39 B：
 
@@ -276,7 +280,7 @@ STM32 解析器拒绝 NaN/Inf、负距离、`shoot>3`、`target_id>9`。通过 C
 | `/cmd_vel` | `geometry_msgs/msg/Twist` | 是 | 只取 `linear.x/y`、`angular.z` → NV COMMAND |
 | `/Odometry` | `nav_msgs/msg/Odometry` | 否 | 只检查 frame 和时间戳新鲜度，作为 COMMAND 的 `VALID` 门控 |
 | `/big_yaw/joint_states` | `sensor_msgs/msg/JointState` | 串口输出 | NV FEEDBACK 映射后发布 |
-| `/autoaim/pose` | `rm_interfaces/msg/AutoAimPose` | 串口输出 | `0x1021` 映射后发布 |
+| `/autoaim/pose` | `rm_interfaces/msg/AutoAimPose` | 串口输出 | 当前 `0x1022` 映射；兼容旧 `0x1021` |
 | `/autoaim/target` | `rm_interfaces/msg/AutoAimTarget` | 是 | header 丢弃，数据区 → `0x0503` |
 | `/autoaim/priority_ids` | `std_msgs/msg/UInt8MultiArray` | 否 | NUC 内部筛选目标 |
 | `/autoaim/invincible_ids` | `std_msgs/msg/UInt8MultiArray` | 否 | NUC 内部过滤无敌目标 |
@@ -353,8 +357,8 @@ NUC ─ USB CDC ─► autonomy.c
 
 | 需求 | 当前状态 | 直接后果 |
 | --- | --- | --- |
-| 本车实测弹速 | USART6 `0x0207` 已解析，但没有调用 `ax650_usb_set_projectile_speed()` | USB `0x1021.projectile_speed` 仍为 0，SP25 无法用实测弹速解算 |
-| 本车裁判 ID/阵营 | USART6 `0x0201` 已解析，但没有调用 `ax650_usb_set_robot_id()` | USB `0x1021.robot_id` 仍为 0 |
+| 本车实测弹速 | USART6 `0x0207` 已解析，但没有调用 `ax650_usb_set_projectile_speed()` | USB `0x1022.projectile_speed` 仍为 0，SP25 无法用实测弹速解算 |
+| 本车裁判 ID/阵营 | USART6 `0x0201` 已解析，但没有调用 `ax650_usb_set_robot_id()` | USB `0x1022.robot_id` 仍为 0 |
 | 比赛阶段、HP、增益、弹量、位置 | 只留在 `referee_info_t` | NUC/COD 无法用于导航和火力决策 |
 | `/autoaim/invincible_ids` | SP25 会订阅，但当前 nav2 仓库没有发布者 | 默认为空，不会根据裁判状态自动排除无敌目标 |
 | `/autoaim/priority_ids` | SP25 会订阅，但当前 nav2 仓库没有发布者 | 只使用 SP25 内置优先级 |
@@ -362,7 +366,7 @@ NUC ─ USB CDC ─► autonomy.c
 
 ### 7.5 裁判信息 USB/ROS 扩展草案（尚未实现）
 
-不建议把所有裁判字段硬塞入 `0x1021`。应保持现有姿态帧兼容，另设低频裁判状态帧；每帧必须带 STM32 接收时间和分组有效位，而不是只转发缓存值。建议命令号暂定如下；在实现双端编解码和黄金字节测试前，这些都不是线上协议。
+不建议把所有裁判字段硬塞入 `0x1022`。应保持现有姿态帧兼容，另设低频裁判状态帧；每帧必须带 STM32 接收时间和分组有效位，而不是只转发缓存值。建议命令号暂定如下；在实现双端编解码和黄金字节测试前，这些都不是线上协议。
 
 | 草案命令 | 建议 ROS 输出 | 必须覆盖的字段 |
 | --- | --- | --- |
@@ -442,7 +446,7 @@ MCU tick 倒退或回绕时，NUC 清空旧偏移并重新同步。重复 `sampl
 ```text
 INS EKF 更新 q
   → kernel_tick_ms()
-  → 0x1021.sample_time_ms
+  → 0x1022.imu_sample_time_ms
   → ClockSync 映射
   → /autoaim/pose.header.stamp
   → SP25 换算为本机 steady_clock 时间
@@ -473,7 +477,7 @@ SP25 最多等待 100 ms 获取覆盖图像时刻的较新姿态样本；姿态�
 | NV COMMAND 周期 | 20 ms / 50 Hz | 条件不满足仍发送无效零速帧 |
 | NV FEEDBACK 周期上限 | 20 ms / 50 Hz | 无新 CAN 样本不发送 |
 | SYNC 周期 | 500 ms / 2 Hz | 2 s 无有效同步则时间映射失效 |
-| `0x1021` 周期上限 | 10 ms / 100 Hz | USB 忙时顺延 |
+| `0x1022` 周期上限 | 10 ms / 100 Hz | USB 忙时顺延；旧 `0x1021` 仅保留解析兼容 |
 | `0x0503` 周期 | 10 ms / 100 Hz | 无目标也发送 `target_id=0、shoot=0` |
 | NUC 导航输入新鲜度 | 200 ms | COMMAND 变为无效零速 |
 | NUC 自瞄目标新鲜度 | 默认 100 ms | 下发无目标帧 |
@@ -505,12 +509,13 @@ SP25 最多等待 100 ms 获取覆盖图像时刻的较新姿态样本；姿态�
 | 功能 | 当前状态 | 证据/影响 |
 | --- | --- | --- |
 | NV 四类帧 | 已双端实现 | C/Python 黄金字节测试存在 |
-| `0x1021` | 已双端实现 | 发布 `/autoaim/pose` |
+| `0x1021` | 保留双端兼容 | 旧固件仍可发布大 yaw 平台 IMU 姿态 |
+| `0x1022` | 已双端实现，待烧录实测 | 发布 IMU、大/小 yaw、pitch、采样时间和有效位 |
 | `0x0503` | 已双端编解码 | STM32 仅保存，无哨兵控制消费者 |
 | 底盘导航接管 | 代码存在、默认关闭 | `SENTRY_AUTONOMY_ENABLE=0`、`enable_drive=false` |
 | 自瞄真实目标下发 | 网关默认关闭 | `enable_autoaim=false` |
-| 枪管完整姿态 | 未实现 | IMU 在大 yaw 平台，缺小 yaw/pitch 合成 |
-| pitch 水平绝对零位 | 未实现 | 当前 `pitch_deg` 相对云台启用时位置，不是枪管水平零位 |
+| 枪管完整姿态 | NUC 代码已实现，待实车轴向核对 | IMU 后依次叠加小 yaw/pitch 与配置安装旋转 |
+| pitch 水平绝对零位 | 仍未实装 | 当前 `pitch_deg` 相对云台启用时位置，`valid_flags.bit5=0`；NUC 用配置零偏补偿 |
 | 弹速上行 | 接口存在、无生产者 | `projectile_speed=0` |
 | 机器人 ID 上行 | 接口存在、无生产者 | `robot_id=0` |
 | 裁判系统全量上行 | 未实现 | USART6 已解析 16 类消息，但无 USB/ROS 转发 |
@@ -520,13 +525,13 @@ SP25 最多等待 100 ms 获取覆盖图像时刻的较新姿态样本；姿态�
 | 命令确认/状态回传 | 未定义 | 无最近接收序号、使能状态、发射允许或错误计数 |
 | 实车 USB/运动验证 | 未执行 | 主机测试和编译不等于实体闭环 |
 
-此外，`config_ax650.h` 文件头仍写有“VCP 帧协议尚未定义”的历史注释，但当前代码已实现共享 USB CDC `0x1021/0x0503`。实际宏值 `AX650_USB_ENABLE=1、AX650_UART1_ENABLE=0` 和源码调用链优先于该过期注释。
+此外，`config_ax650.h` 文件头仍写有“VCP 帧协议尚未定义”的历史注释，但当前代码已实现共享 USB CDC `0x1022/0x0503`。实际宏值 `AX650_USB_ENABLE=1、AX650_UART1_ENABLE=0` 和源码调用链优先于该过期注释。
 
-## 11. 完整枪管姿态所需扩展（草案，尚未实现）
+## 11. 完整枪管姿态扩展 `0x1022`
 
-为了在 NUC 按“大 yaw 平台 IMU + 小 yaw 编码器 + pitch 编码器”合成枪管/相机姿态，现行 `0x1021` 信息不足。建议保留 `0x1021` 兼容旧接口，新增暂定命令 `0x1022`。在代码正式实现并通过双端黄金测试前，`0x1022` 不是线上协议，不得发送。
+为了在 NUC 按“大 yaw 平台 IMU + 小 yaw 编码器 + pitch 编码器”合成枪管/相机姿态，USB 上行改用 `0x1022`。`0x1021` 的解析与旧 UART 打包接口保留用于兼容。`0x1022` 已通过 C/Python 黄金字节、CRC、分片和 `-Ofast` 主机测试；在用户烧录新固件前，实体 STM32 仍发送旧 `0x1021`。
 
-建议 payload 52 B，整帧 61 B，能够装入一次 USB FS 64 B 数据包：
+payload 52 B，整帧 61 B，能够装入一次 USB FS 64 B 数据包：
 
 | payload 偏移 | 长度 | 类型 | 字段 | 单位 |
 | ---: | ---: | --- | --- | --- |
@@ -536,7 +541,7 @@ SP25 最多等待 100 ms 获取覆盖图像时刻的较新姿态样本；姿态�
 | 12 | 4 | `float` | `q_z` | 无量纲 |
 | 16 | 4 | `float` | `big_yaw_rel` | rad |
 | 20 | 4 | `float` | `small_yaw` | rad，相对机械中位 |
-| 24 | 4 | `float` | `pitch` | rad，相对枪管水平零位 |
+| 24 | 4 | `float` | `pitch` | rad，当前实现相对云台启用时机械参考位 |
 | 28 | 4 | `float` | `projectile_speed` | m/s |
 | 32 | 4 | `uint32` | `imu_sample_time_ms` | MCU tick |
 | 36 | 4 | `uint32` | `big_yaw_sample_time_ms` | MCU tick |
@@ -546,7 +551,7 @@ SP25 最多等待 100 ms 获取覆盖图像时刻的较新姿态样本；姿态�
 | 50 | 1 | `uint8` | `program_mode` | 模式 |
 | 51 | 1 | `uint8` | `robot_id` | 本车 ID |
 
-建议 `valid_flags`：
+`valid_flags`：
 
 | 位 | 含义 |
 | ---: | --- |
@@ -576,7 +581,9 @@ q_world_gun =
 q_world_camera = q_world_gun ⊗ q_gun_to_camera
 ```
 
-实现前还必须确认两个关节轴、正方向、传动比、机械零位和固定安装旋转。不能仅凭代码名称假定小 yaw 绕世界 Z、pitch 绕世界 Y。
+当前 SP25 首版先在每个 `0x1022` 样本内合成枪管四元数，再对枪管四元数插值到图像时刻；四路原始采样时间均保留在 ROS 消息中，后续动态精度不足时再升级为分量独立插值。小 yaw 的时间暂取在线时的 200 Hz gimbal 快照时刻，因为现有 DJI 电机实例未保存 CAN 回调硬时间；大 yaw/pitch 使用 DM CAN 样本时间。
+
+两个关节轴、正方向、机械零位和固定安装旋转仍必须在实体上核对。NUC 默认小 yaw 绕前级局部 `+Z`、pitch 绕前级局部 `+Y`，但轴、符号、零偏及三段静态四元数全部可配置，默认值不得直接当作实测结论。大 yaw 绝对方向已经包含在 `q_world_big_imu` 中，`big_yaw_rel` 只用于诊断，禁止再次乘入旋转链。
 
 ### 11.1 建议但非首轮必需的状态确认帧
 
@@ -596,12 +603,12 @@ q_world_camera = q_world_gun ⊗ q_gun_to_camera
 1. 保持 `enable_drive=false、enable_autoaim=false、SENTRY_AUTONOMY_ENABLE=0`。
 2. 只检查 SYNC_REQUEST/RESPONSE，确认持续获得有效偏移。
 3. 检查 NV FEEDBACK 和 `/big_yaw/joint_states` 的频率、零位、方向和时间戳。
-4. 检查 `0x1021` 和 `/autoaim/pose`，确认 8 位序号、MCU 时间、模式和姿态方向。
+4. 检查 `0x1022` 和 `/autoaim/pose`，确认 8 位序号、四路 MCU 时间、有效位和姿态方向。
 5. 在 STM32 日志中分别确认 USART6 `0x0001`、`0x0003`、`0x0201`、`0x0207`、`0x0208` 持续更新；不能只看 `init_flag`。
 6. 实现裁判扩展后，逐项断开裁判链路，确认所有 ROS 裁判消息按各自超时失效而不是保留旧值。
 7. 对照装甲板实物确认 SP25 `target_id=1～8`，尤其确认“SP25 哨兵=6、裁判哨兵=7/107”的映射。
 8. 发送 `target_id=0、shoot=0` 的 `0x0503`，只确认解析计数和 100 ms 超时，不让云台运动。
-9. 完成 `0x1022` 或等价扩展后，分别只转大 yaw、小 yaw、pitch，核对各轴方向和图像时刻插值。
+9. 分别只转大 yaw、小 yaw、pitch，核对各轴方向；大 yaw 编码器变化不得被重复叠加到 IMU 姿态。
 10. 接通 `0x0503 → gimbal_cmd` 后，关闭发射机构，从小角度静态目标开始验证。
 11. 分别断开 `/cmd_vel`、`/Odometry`、大 yaw CAN、姿态、SP25、裁判系统和 USB，确认每一层超时降级。
 12. 最后才考虑把 `shoot` 请求接入发射仲裁，并逐项验证摩擦轮、热量、堵转、裁判和遥控门槛。

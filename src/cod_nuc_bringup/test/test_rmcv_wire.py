@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
-from rmcv_wire import Parser, PoseFrame, TargetFrame, crc8, crc16, valid_target
+from rmcv_wire import FullPoseFrame, Parser, PoseFrame, TargetFrame, crc8, crc16, valid_target
 
 
 class RMCVWireTest(unittest.TestCase):
@@ -33,6 +33,25 @@ class RMCVWireTest(unittest.TestCase):
         self.assertFalse(valid_target(TargetFrame(0, yaw=float('nan'))))
         self.assertFalse(valid_target(TargetFrame(0, shoot=4)))
         self.assertFalse(valid_target(TargetFrame(0, target_id=10)))
+
+    def test_full_pose_layout_fragmentation_and_crc(self):
+        pose = FullPoseFrame(
+            255, 1.0, 0.0, 0.0, 0.0, .25, -.5, .125, 24.5,
+            100, 101, 102, 103, 0x03ff, 1, 107)
+        raw = pose.encode()
+        self.assertEqual(len(raw), 61)
+        self.assertEqual(raw[5:7], bytes((0x22, 0x10)))
+        self.assertEqual(crc16(raw[:-2]), int.from_bytes(raw[-2:], 'little'))
+        parser = Parser()
+        frames = []
+        for index in range(0, len(raw), 3):
+            frames.extend(parser.feed(raw[index:index + 3]))
+        self.assertEqual(frames, [pose])
+
+        invalid = bytearray(raw)
+        invalid[55:57] = (0xfc00).to_bytes(2, 'little')
+        invalid[-2:] = crc16(invalid[:-2]).to_bytes(2, 'little')
+        self.assertEqual(Parser().feed(invalid), [])
 
 
 if __name__ == '__main__':

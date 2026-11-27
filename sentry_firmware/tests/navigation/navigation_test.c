@@ -18,7 +18,7 @@
 #include <string.h>
 
 static uint32_t now_ms;
-static uint8_t usb_buffer[64], tx_buffer[32];
+static uint8_t usb_buffer[64], tx_buffer[64];
 static USBCallback receive_callback;
 static sentry_gimbal_feed_t feed;
 static unsigned tx_count;
@@ -214,9 +214,22 @@ int main(void)
 
     const float identity[4] = {1.0f, 0.0f, 0.0f, 0.0f};
     ax650_usb_update_quaternion(identity, 950u);
+    feed.big_yaw_rel_deg = 12.0f;
+    feed.small_yaw_rel_deg = -3.0f;
+    feed.pitch_deg = 8.0f;
+    feed.big_yaw_sample_us = 949000u;
+    feed.small_yaw_sample_us = 948000u;
+    feed.pitch_sample_us = 947000u;
+    feed.big_yaw_online = feed.small_yaw_online = feed.pitch_online = 1u;
     now_ms = 950u;
     autonomy_task();
-    assert(tx_length == AX650_POSE_FRAME_SIZE);
+    assert(tx_length == SENTRY_NAV_PROTOCOL_FRAME_SIZE);
+    navigation_complete_tx();
+    now_ms = 960u;
+    autonomy_task();
+    assert(tx_length == AX650_FULL_POSE_FRAME_SIZE);
+    assert(tx_buffer[5] == 0x22u && tx_buffer[6] == 0x10u);
+    assert((tx_buffer[55] & 0x0Fu) == 0x0Fu);
     print_hex(tx_buffer, tx_length);
     puts("firmware navigation and auto-aim USB tests passed");
     return 0;

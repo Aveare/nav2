@@ -15,15 +15,15 @@
 | 基线身份 | 仓库内 `.agents/skills/rm-electrical-dev`(上游 basic_framework @1a136eb1,460 条;审计脚本随仓库走,见 DEV-20261116-06) |
 | 工程目标 | **当前交付目标 = 哨兵 Sentry**:`apps/sentry/` + `config/sentry_2026/`;必须显式执行 `build.ps1 sentry -Current`,哨兵烧录优先使用明确命名的 `firmware/sentry.elf`,CMake 无参数默认 infantry 仅作历史兼容(DEV-20261126-01/03) |
 | 有效配置 | 哨兵 ONE_BOARD 单板;`config/sentry_2026/config.h`(伞头 + `config_<域>.h`);装配入口 `apps/sentry/app/assembly.c`,消息合同 `apps/sentry/app/sentry_def.h`;infantry/heavy profile 仅作共享回归与兼容 |
-| 功能状态 | 哨兵底盘/三轴云台/发射/遥控/安全机制已实装;**旧 AX650 USART1 已关闭,USART1 专用于三轴编码器 VOFA JustFloat;USB CDC VCP 已接入 NV v1 导航与 RMCV `0x1021/0x0503`**。`0x1021` 当前只有大 yaw 平台 IMU,`0x0503` 只解析保存且尚未接入哨兵云台/发射控制(DEV-20261126-35);USART6 已解析 16 类裁判消息,但除热量守卫/UI 外未被哨兵消费,也未转发 NUC。SP25 敌方兵种 ID 与裁判 robot ID 是不同命名空间(DEV-20261126-36);默认 `SENTRY_AUTONOMY_ENABLE=0`,只解析/测时/回传大 yaw,不驱动底盘;遥控为右杆平移、左纵杆 pitch、左下+左横杆小 yaw、其他左挡+左横杆底盘转向;大 yaw 普通挡锁机械正前、小陀螺挡做世界角速度阻尼。此前大 yaw 10 N·m 饱和/线圈过温是未关闭的历史风险,必须架空短测 |
-| 最近验证 | **2026-11-26 NV v1 ROS↔STM32 通信(DEV-20261126-30)**:导航协议四组主机测试、chassis/fwk/AX650/profile 回归、静态门禁和 Sentry ARM 编译通过;ELF SHA-256 `832D4F6C…ADEFAA`。仓库既有 skill 快照 `LICENSE` 哈希不匹配使 baseline audit 不可靠，未冒充通过；未烧录、未做实体 USB/底盘运动验证 |
+| 功能状态 | 哨兵底盘/三轴云台/发射/遥控/安全机制已实装;**旧 AX650 USART1 已关闭,USART1 专用于三轴编码器 VOFA JustFloat;USB CDC VCP 已接入 NV v1 导航与 RMCV `0x1022/0x0503`**，NUC 保留旧 `0x1021` 解析。`0x1022` 上报大 yaw IMU 与大/小 yaw、pitch 关节角，NUC/SP25 已实现可配置枪管姿态与旋转标定链路，尚未烧录和实车核对轴向(DEV-20261127-01);`0x0503` 只解析保存且尚未接入哨兵云台/发射控制(DEV-20261126-35);USART6 已解析 16 类裁判消息,但除热量守卫/UI 外未被哨兵消费,也未转发 NUC。SP25 敌方兵种 ID 与裁判 robot ID 是不同命名空间(DEV-20261126-36);默认 `SENTRY_AUTONOMY_ENABLE=0`,不驱动底盘;遥控为右杆平移、左纵杆 pitch、左下+左横杆小 yaw、其他左挡+左横杆底盘转向;大 yaw 普通挡锁机械正前、小陀螺挡做世界角速度阻尼。此前大 yaw 10 N·m 饱和/线圈过温是未关闭的历史风险,必须架空短测 |
+| 最近验证 | **2026-11-27 完整枪管姿态(DEV-20261127-01)**:`0x1022` C/Python 黄金字节、CRC、分片、O0/Ofast 四矩阵、AX650 测试、命名/宏/注释/ABI 门禁与 Sentry ARM 编译通过；NUC ROS 两包编译、隔离 PTY 测试 5/5、SP25 枪管旋转测试和标定目标编译通过。仓库既有 skill 快照损坏使 baseline audit 不可靠，未冒充通过；未烧录、未做实体 USB/云台运动验证 |
 | 当前问题 | 无(RM-001 已关闭) |
 | 下一步 | 烧录 `firmware/sentry.elf` 后保持两端驱动开关关闭,先确认测时与 `/big_yaw/joint_states`;随后架空核对正前/左移/逆时针符号及四类断流降级,验收后才允许同时打开 MCU `SENTRY_AUTONOMY_ENABLE` 与 NUC `enable_drive`;M3 整车回归和热量守卫实测仍由用户执行 |
 | 演进待办 | flash 标定流程(Yaw 零位等持久化,代码只读语义名),实车回归通过后评估 |
 | 重构状态 | **自主研发框架升级 B0a~B12 已完成(2026-11-22,DEV-20261122-21/22/23)**:framework/{kernel,err,mem,msg,diag} + ports 全总线/FreeRTOS 后端 + components/ + apps/{infantry,heavy,sentry}_skeleton(CMake `ROBOT_PROFILE`);板型运行期化按 DEC-009 不做;**`application/`、`modules/`、`bsp/` 全部删除**,AGENTS/Skill/code-map v2/版权页收口。**2026-11-23 工程统一化(DEV-20261123-01)**:目录语义化(app/、config_*)、函数/类型/宏/变量/枚举全量 snake_case + 模块前缀、API 统一 `module_verb_object`、注释头 171/171、命名规范与 `check_naming.py`/`.clang-tidy` 落地。下一里程碑 = **M3 实车回归(用户)→ M3′ 结项验收**(tag 复核点 `arch-before-M3p`)。2026-11-20 零行为变化重构 **R0~R6 已完成**(9 提交,DEV-20261120-03~09):闸门工具、文档五类重组、config 分轴、cmd 拆分、chassis/gimbal 函数搬出、切断 modules→application 反向依赖、构建/CI 收口。**功能与参数零改动,text 仅 +56 B(+0.05%),bss 不变**。排程入口 `.Doc/plan/重构总方案.md`(已结项:R0~R6+R5b 全部交付,实车回归 2026-11-20 PASS;R4b 经裁决不做),回退标签 `refactor-before-R{0,2,3,4a,5,6}`。该重构无遗留待办;**当前结构轴待办 = M3 实车回归 → M3′ 结项验收**。功能队列仍冻结。 |
 | 文档结构 | 2026-11-20 重组为 `plan/ spec/ detail/ guide/ history/`,2026-11-23 补 `review/`、`gate/` 索引;规范新增 `spec/命名规范.md`,组件登记 `components/README.md`。索引见 `.Doc/README.md`。**本文件 §6 历史 DEV 条目里的 `.Doc/xxx.md` 是当时路径**,已移动的文件按文件名在 `.Doc/` 下检索(新条目请写全路径)。 |
 
-哨兵当前串口路由:**USART1 = 云台三轴编码器 VOFA(921600 8N1);USB CDC VCP = NV v1 导航 + RMCV `0x1021/0x0503`;USART6 = 裁判系统**。默认只通信不驱动,完整协议见 `.Doc/spec/NUC-STM32导航与自瞄USB串口协议.md`。旧 AX650 UART1 链路已关闭,见 DEV-20261126-02。
+哨兵当前串口路由:**USART1 = 云台三轴编码器 VOFA(921600 8N1);USB CDC VCP = NV v1 导航 + RMCV `0x1022/0x0503`;USART6 = 裁判系统**。默认只通信不驱动,完整协议见 `.Doc/spec/NUC-STM32导航与自瞄USB串口协议.md`。旧 AX650 UART1 链路已关闭,见 DEV-20261126-02。
 
 哨兵兵种已进入**手动整机实装**(DEV-20261123-13):`apps/sentry/{cmd,chassis,gimbal,shoot,autonomy}` + `config/sentry_2026/` 全部落地,CMake `-DROBOT_PROFILE=sentry` 可构建;默认构建仍为步兵。三轴零位/方向/PID 均为 `[待实测]`,未烧录。
 
@@ -46,7 +46,7 @@ U3/U4 已收口:组件层直达 RTOS/HAL 与具体句柄清理,IMU 增加 `ports
 | 最近验证 | 见 §0 |
 | 板上固件身份 | 待确认(用户烧录后回填) |
 | 当前问题 | 无 |
-| 最近开发条目 | DEV-20261126-36 |
+| 最近开发条目 | DEV-20261127-01 |
 | 下一步 | 见 §0 |
 
 ## 2. 设计与配置
@@ -4834,3 +4834,37 @@ SP25 `armor.hpp`、`decider.cpp`、`cod_sentry.cpp` 和 ROS bridge 为证据做�
 未编译、未烧录、未访问实体裁判系统或 USB。
 
 **AI**：OpenAI Codex（GPT-6），2026-11-26。
+
+### DEV-20261127-01｜2026-11-27｜[SENTRY] 完整枪管姿态与 NUC 相机标定链路
+
+**触发与授权**。用户要求 NUC 从既有 USB 串口信息读取姿态，使用大 yaw、小 yaw 和 pitch
+计算枪管姿态，并完成相机内参与旋转外参标定。该请求明确批准本次新增协议字段、函数、
+ROS 消息和标定程序；仍不授权烧录、运动控制或发射。开工前已同步 NUC 源码快照，并确认
+`Aveare/nav2` 与 `Aveare/sp25-nuc` 的 `origin/main` 均为最新。
+
+**设计**。把协议文档中的 `0x1022` 草案落地为 52 B payload/61 B 整帧，承载大 yaw 平台
+IMU 四元数、大 yaw 相对角、小 yaw 相对角、pitch 相对机械参考角、四路采样时间和有效位。
+NUC 保留 `0x1021` 兼容，完整姿态通过扩展后的 `/autoaim/pose` 发布。枪管姿态按平台 IMU、
+小 yaw 局部旋转、pitch 局部旋转和可配置静态安装旋转合成；大 yaw 编码器只做诊断，避免
+把已经包含在 IMU 四元数中的大 yaw 重复叠加。
+
+**标定**。SP25 新增只读 ROS 与相机的采集/标定程序，圆点板有效时保存图像时刻的枪管
+姿态，同一批数据完成相机内参与旋转手眼标定，输出 `camera_matrix`、
+`distort_coeffs` 和 `R_camera2gun`。轴、符号、零偏和安装旋转均为配置项。
+
+**验证**。`run_ax650_tests.ps1` 通过；`tests/navigation/run_tests.py` 的反馈/驱动开关 ×
+O0/Ofast 四矩阵通过，并确认 C/Python `0x1022` 逐字节一致；NUC 隔离 ROS 域中的
+`test_rmcv_wire.py + test_usb_bridge.py` 5/5 通过。命名、宏、源码清单、注释、ABI 闸门
+通过，Sentry ARM 全量编译通过，ELF SHA-256
+`00ECB47616CD85A0331E3871304E81049B19862C856BDAB254A2D3B0FB7138BF`。NUC 上
+`rm_interfaces/cod_nuc_bringup` 编译通过，SP25 `cod_bridge_test`、
+`calibrate_gun_camera` 编译及旋转链测试通过。profile 回归停在仓库既有遥控映射断言，
+framework 套件因只构建了 `build_sentry`、其脚本固定读取 `build/` 而停止，均与本次文件
+无关。基线审计仍因既有快照缺文件/哈希不匹配报告 corrupted。
+
+**现场状态**。验证期间 NUC 自行重启（`uptime -s=2026-11-26 20:43:58 -05:00`），原串口桥
+随系统退出，重启后 `/dev/ttyACM0` 与 by-id 设备尚未出现；本次未执行停止或重启命令，按
+安全规则未擅自拉起进程。源码和构建结果已保留在 NUC，备份位于
+`/home/rm/backups/gun_calibration_20261127/`。未烧录 STM32。
+
+**AI**：OpenAI Codex（GPT-6），2026-11-27。

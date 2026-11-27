@@ -12,7 +12,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
 from rm_interfaces.msg import AutoAimPose, AutoAimTarget
 from nav_wire import Frame, Parser, ClockSync, COMMAND, FEEDBACK, SYNC_REQUEST, SYNC_RESPONSE, VALID, valid_command
-from rmcv_wire import Parser as RMCVParser, PoseFrame, TargetFrame, valid_target
+from rmcv_wire import Parser as RMCVParser, FullPoseFrame, PoseFrame, TargetFrame, valid_target
 
 
 class SentryUSBBridge(Node):
@@ -134,7 +134,30 @@ class SentryUSBBridge(Node):
         msg.header.frame_id = 'gimbal_imu'
         msg.sequence = frame.sequence
         msg.mcu_sample_time_ms = frame.sample_time_ms
-        msg.yaw, msg.pitch, msg.roll = frame.yaw, frame.pitch, frame.roll
+        if isinstance(frame, FullPoseFrame):
+            q = (frame.q_w, frame.q_x, frame.q_y, frame.q_z)
+            norm = math.sqrt(sum(value * value for value in q))
+            w, x, y, z = (value / norm for value in q)
+            r01 = 2.0 * (x * y - w * z)
+            r11 = 1.0 - 2.0 * (x * x + z * z)
+            r20 = 2.0 * (x * z - w * y)
+            r21 = max(-1.0, min(1.0, 2.0 * (y * z + w * x)))
+            r22 = 1.0 - 2.0 * (x * x + y * y)
+            msg.yaw = math.degrees(math.atan2(-r01, r11))
+            msg.pitch = math.degrees(math.asin(r21))
+            msg.roll = math.degrees(math.atan2(-r20, r22))
+            msg.full_pose = True
+            msg.big_yaw_quaternion = [w, x, y, z]
+            msg.big_yaw_rel = frame.big_yaw_rel
+            msg.small_yaw = frame.small_yaw
+            msg.barrel_pitch = frame.pitch
+            msg.big_yaw_sample_time_ms = frame.big_yaw_sample_time_ms
+            msg.small_yaw_sample_time_ms = frame.small_yaw_sample_time_ms
+            msg.pitch_sample_time_ms = frame.pitch_sample_time_ms
+            msg.valid_flags = frame.valid_flags
+        else:
+            msg.yaw, msg.pitch, msg.roll = frame.yaw, frame.pitch, frame.roll
+            msg.full_pose = False
         msg.projectile_speed = frame.projectile_speed
         msg.mode, msg.robot_id = frame.mode, frame.robot_id
         self.pose_pub.publish(msg)
@@ -156,7 +179,7 @@ class SentryUSBBridge(Node):
             for frame in self.parser.feed(received):
                 self.feedback(frame, now_ns, now)
             for frame in self.rmcv_parser.feed(received):
-                if isinstance(frame, PoseFrame):
+                if isinstance(frame, (PoseFrame, FullPoseFrame)):
                     self.pose_feedback(frame, now_ns, now)
             if self.tx:
                 if now-self.tx_started > .1:

@@ -29,8 +29,23 @@ void ax650_usb_feed(const uint8_t *data, size_t count, uint32_t received_ms);
 void ax650_usb_update_quaternion(const float q_wxyz[4], uint32_t sample_time_ms);
 
 /**
- * USB 所有者在端口空闲时生成一帧 0x1021。
- * @return 成功返回 AX650_POSE_FRAME_SIZE；未到周期或尚无姿态返回 0。
+ * @brief  更新 0x1022 的三轴关节快照
+ * @param  big_yaw_rel_rad 大 yaw 相对底盘机械零位,rad
+ * @param  small_yaw_rad 小 yaw 相对机械中位,rad
+ * @param  pitch_rad pitch 相对机械参考位,rad
+ * @param  big_yaw_sample_time_ms 大 yaw CAN 样本时间,ms
+ * @param  small_yaw_sample_time_ms 小 yaw 快照时间,ms
+ * @param  pitch_sample_time_ms pitch CAN 样本时间,ms
+ * @param  valid_flags AX650_POSE_* 位标志；IMU/弹速/robot_id 位由本组件维护
+ */
+void ax650_usb_update_gimbal(float big_yaw_rel_rad, float small_yaw_rad, float pitch_rad,
+                             uint32_t big_yaw_sample_time_ms,
+                             uint32_t small_yaw_sample_time_ms,
+                             uint32_t pitch_sample_time_ms, uint16_t valid_flags);
+
+/**
+ * USB 所有者在端口空闲时生成一帧 0x1022。
+ * @return 成功返回 AX650_FULL_POSE_FRAME_SIZE；未到周期或姿态不完整返回 0。
  */
 size_t ax650_usb_prepare_pose(uint8_t *output, size_t capacity, uint32_t now_ms);
 
