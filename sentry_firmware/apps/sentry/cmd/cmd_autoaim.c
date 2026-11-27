@@ -1,6 +1,6 @@
 /**
  * @file    cmd_autoaim.c
- * @brief   哨兵自瞄输入整形:AX650 0x0503 世界 yaw 目标的卡尔曼与二阶平滑
+ * @brief   哨兵自瞄输入整形：NUC 0x0503 世界 yaw 目标的卡尔曼与二阶平滑
  * @layer   APP
  * @author  小猫大王
  * @note    只处理目标指令,不进入 IMU 反馈链;目标断帧时冻结,不按旧速度外推。
@@ -47,7 +47,7 @@ int cmd_auto_aim_set(void)
 
     if (valid)
     {
-        ax650_raw_yaw_target = vision.command.yaw;
+        nuc_raw_yaw_target = vision.command.yaw;
         const float yaw_offset = isfinite(sentry_rt_auto_aim_yaw_offset_deg)
                                      ? sentry_rt_auto_aim_yaw_offset_deg
                                      : SENTRY_AUTO_AIM_YAW_OFFSET_DEG;

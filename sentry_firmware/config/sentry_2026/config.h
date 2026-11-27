@@ -16,7 +16,7 @@
 #include "config_board.h"
 #include "config_chassis.h"
 #include "config_gimbal.h"
-#include "config_ax650.h"
+#include "config_nuc.h"
 #include "config_shoot.h"
 #include "config_heat.h"
 #include "config_kbm.h"
@@ -27,17 +27,9 @@
 /* ---------------- 跨域一致性守卫 ----------------
  * 子头只定义自己域内的值;需要读两个域的检查集中在这里,避免子头互相 include。 */
 
-/* USART1 只有一个使用者:哨兵云台 VOFA、底盘 VOFA 与旧 AX650 链路互斥。 */
+/* USART1 只允许一个 VOFA 调试使用者；NUC 固定走 USB CDC，不占 USART1。 */
 #if GIMBAL_VOFA_UART1_ENABLE && CHASSIS_VOFA_UART1_ENABLE
 #error "UART1 owner conflict: gimbal VOFA and chassis VOFA must be mutually exclusive"
-#endif
-#if AX650_UART1_ENABLE && (GIMBAL_VOFA_UART1_ENABLE || CHASSIS_VOFA_UART1_ENABLE)
-#error "UART1 owner conflict: AX650 and debug VOFA must be mutually exclusive"
-#endif
-
-/* 下行接收不能脱离链路总开关。 */
-#if AX650_UART1_RX_ENABLE && !AX650_UART1_ENABLE
-#error "AX650_UART1_RX_ENABLE=1 需要先开启 AX650_UART1_ENABLE"
 #endif
 
 /* 小 yaw 电流模式与电压模式的输出限幅必须匹配协议满量程。 */

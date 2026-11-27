@@ -30,7 +30,7 @@ extern shoot_ctrl_cmd_t shoot_cmd;
 extern sentry_gimbal_feed_t gimbal_fb_recv;
 extern sentry_chassis_feed_t chassis_fb_recv;
 extern sentry_shoot_feed_t shoot_fb_recv;
-extern float ax650_raw_yaw_target;
+extern float nuc_raw_yaw_target;
 extern uint8_t yaw_recentering;
 extern uint16_t recenter_cnt;
 extern uint8_t auto_aim_active;       // 左中挡/Shift 选中自瞄

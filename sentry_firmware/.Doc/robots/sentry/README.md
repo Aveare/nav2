@@ -11,7 +11,7 @@
   参数入口 `config/sentry_2026/`，构建必须显式 `.\build.ps1 sentry -Current`。
 - 功能快照：底盘（600×600，轮心对角线 600√2；轮半径 75、减速比 19、转子限速 7000 rpm）
   + 三轴云台 + 17 mm 发射 + 遥控/键鼠 + 仲裁/看门狗 + 遥测 + **USB 导航 NV v1 + 视觉 RMCV
-  `0x1021/0x0503`（协议核心沿用 Avear 实测版）+ 左中/Shift 自瞄 + 视觉连发 + 底盘功率模型**已实装。
+  `0x1022/0x0503`（旧 `0x1021` 保留兼容）+ 左中/Shift 自瞄 + 视觉连发 + 底盘功率模型**已实装。
 - **三轴零位/方向/限位/PID 仍为 `[待实测]`**；自瞄世界 yaw 偏置、pitch 平台补偿、
   功率模型 `MODEL_SCALE/MARGIN` 待台架标定；未完成整车烧录验证。
 - 状态与下一步以 [DEVLOG.md](DEVLOG.md) §0 为准；历史过程见 `.Doc/history/开发史.md` 第十六、十七章。
@@ -34,8 +34,8 @@
 - **USART1 = 云台三轴编码器 VOFA**：921600 8N1，PA9 TX / PB7 RX；VOFA+ 选 JustFloat，
   200 Hz 发送 3 个 float（大 yaw 多圈角 / 小 yaw ECD / pitch 多圈角）+ `00 00 80 7F`。
 - **USB CDC = 唯一上位机链路**：NV v1 导航（`COMMAND/FEEDBACK/SYNC`，32 B）+
-  RMCV 视觉（`0x1021` 姿态上行 / `0x0503` 目标下行）；`autonomy` 是唯一所有者，两协议共享字节流、各自按帧头重同步。
-- **USART6 = 裁判系统**（115200 8N1）。AX650 USART1 已停用（`AX650_UART1_ENABLE=0`）。
+  RMCV 视觉（`0x1022` 完整姿态上行 / `0x0503` 目标下行）；`autonomy` 是唯一所有者，两协议共享字节流、各自按帧头重同步。
+- **USART6 = 裁判系统**（115200 8N1）。哨兵未装配 AX650；NUC 只通过 USB CDC 通信。
 
 ### 遥控器
 

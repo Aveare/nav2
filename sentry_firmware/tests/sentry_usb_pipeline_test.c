@@ -1,6 +1,6 @@
 /**
  * @file    sentry_usb_pipeline_test.c
- * @brief   autonomy 双协议集成测试:NV COMMAND + 0x0503 同流解析 + 0x1021 上行
+ * @brief   autonomy 双协议集成测试:NV COMMAND + 0x0503 同流解析 + 0x1022 上行
  * @layer   TESTS
  * @author  小猫大王
  */
@@ -26,7 +26,7 @@ static USBCallback rx_callback;
 static uint8_t rx_mirror[64];
 static uint8_t last_tx[64];
 static uint16_t last_tx_len;
-static uint8_t tx_1021;
+static uint8_t tx_1022;
 
 uint32_t kernel_tick_ms(void) { return fake_ms; }
 uint32_t kernel_enter_critical(void) { return 0u; }
@@ -44,9 +44,8 @@ uint8_t usb_try_transmit(uint8_t *buffer, uint16_t length)
         return 1u;
     memcpy(last_tx, buffer, length);
     last_tx_len = length;
-    if ((length == 31u && buffer[0] == 0xA5u && buffer[5] == 0x21u) ||
-        (length == AX650_FULL_POSE_FRAME_SIZE && buffer[0] == 0xA5u && buffer[5] == 0x22u))
-        tx_1021 = 1u;
+    if (length == 61u && buffer[0] == 0xA5u && buffer[5] == 0x22u)
+        tx_1022 = 1u;
     return 0u;
 }
 
@@ -131,15 +130,15 @@ int main(void)
     vision_link_get_state(&vision);
     assert(vision.valid && vision.command.yaw == 33.0f && vision.command.target_id == 3u);
 
-    /* 0x1022 full gun pose uplink at the next 10 ms boundary */
+    /* 0x1022 uplink at the next 10 ms boundary */
     ekf_ins.Initialized = 1u;
     ekf_ins.UpdateCount = 1u;
     ekf_ins.q[0] = 1.0f;
     fake_ms += 20u;
-    tx_1021 = 0u;
+    tx_1022 = 0u;
     autonomy_task();
-    assert(tx_1021 == 1u);
-    assert(last_tx_len == AX650_FULL_POSE_FRAME_SIZE);
+    assert(tx_1022 == 1u);
+    assert(last_tx_len == 61u);
 
     printf("sentry USB pipeline tests passed\n");
     return 0;

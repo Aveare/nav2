@@ -99,9 +99,10 @@ void cmd_authority_arbitrate(void)
         robot_state = ROBOT_STATUS_READY;
         /* 停机期间手转/随动会积累世界角误差,解锁瞬间重锚定,避免角度环满输出猛甩 */
         gimbal_cmd.big_yaw = gimbal_fb_recv.big_yaw_world_deg;
-        /* pitch 上电不回中:只把目标重锚定到当前关节角,避免解锁瞬间大幅动作。
+        /* pitch 目标归零 = 回到上电标定的 0 位(ZERO_AT_BOOT 锁存),不回水平/回中:
+         * gimbal 以当前角为爬升起点按 RATE 爬过去,解锁瞬间不会大幅动作。
          * (2026-11-23 教训:上电回水平在连杆未确认行程/符号时会把机构顶断) */
-        gimbal_cmd.pitch = 0.0f; // gimbal captures the motor-shaft unlock position
+        gimbal_cmd.pitch = 0.0f;
         /* 解锁不请求底盘回中,右拨杆切到中挡后直接自由平移(DEV-20261126-05) */
         if (!unlock_logged)
         {

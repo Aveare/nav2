@@ -1,0 +1,14 @@
+# Sentry camera intrinsics (recalibrated for new focal length, 2026-11-26)
+# Camera: Hikrobot MV-CS016-10UC (SN: DB1993052)
+# Resolution: 1440x1080 (full sensor, OffsetX=0, OffsetY=0)
+# Board: 10x7 symmetric circles @ 40mm
+# Quality: 91/96 usable frames, RMS 0.36224 px, 5-fold mean 0.34823 px, 5-fold max 0.70207 px
+# Coverage: depth 819-2018 mm, tilt 3.3-37.1 deg, FOV 33.13x25.17 deg
+# KD SHA-256: 76a6f5246ed936795a2619d1d2796607676a57c976f2cef740e5b7a314e76fad
+
+camera_name: "hikrobot_mv_cs016_10uc_db1993052"
+image_width: 1440
+image_height: 1080
+distortion_model: "plumb_bob"
+camera_matrix: [2420.406021, 0, 715.737041, 0, 2418.567995, 536.262617, 0, 0, 1]
+distort_coeffs: [-0.035353156, 0.162902640, -0.003264080, -0.002689476, 0]

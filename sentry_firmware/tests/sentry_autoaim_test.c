@@ -23,7 +23,7 @@ shoot_ctrl_cmd_t shoot_cmd;
 sentry_gimbal_feed_t gimbal_fb_recv;
 sentry_chassis_feed_t chassis_fb_recv;
 sentry_shoot_feed_t shoot_fb_recv;
-float ax650_raw_yaw_target;
+float nuc_raw_yaw_target;
 uint8_t yaw_recentering;
 uint16_t recenter_cnt;
 uint8_t auto_aim_active;

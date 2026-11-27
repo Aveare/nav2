@@ -10,16 +10,16 @@
 | 交付身份 | 2026 哨兵 Sentry，RMUC，单板 ONE_BOARD |
 | 应用/参数 | `apps/sentry/` + `config/sentry_2026/`（伞头 + 子头） |
 | 构建 | `.\build.ps1 sentry -Current` → `firmware/sentry.elf` |
-| 功能状态 | 底盘/三轴云台/发射/遥控键鼠/仲裁/安全机制已手动整机实装；**USB CDC 已接入 NV v1 导航 + RMCV `0x1021/0x0503` 视觉**（协议核心采用 Avear 实测版，本分支接入自瞄/连发/功率）；USART1 = 三轴编码器 VOFA；AX650 关闭；**pitch 已恢复使能**（`=1`，固定水平零位 + 方向 `-1` + 软限位 `-31.8/+33.7°`，见 DEV-20261127-211402 恢复，待整车复核）；**底盘功率控制临时关闭**（`CHASSIS_POWER_CTRL_EN=0`，自转掉电复测中） |
-| 证据等级 | 三轴零位/方向/限位/PID 均 `[待实测]`，首次上电必须架空逐轴确认符号后再闭环；**大 yaw 小陀螺速度环 Ki=2.0 已台架验证**（2026-11-27，拖拽 163→81°）；自瞄世界 yaw 偏置、pitch 平台补偿、功率模型 `MODEL_SCALE/MARGIN` 待台架标定 |
-| 已知缺口 | 哨兵功率模型参数沿用步兵，未在哨兵实车复核；`0x1021` 只含大 yaw 平台 IMU，不含小 yaw/pitch，完整枪管姿态待 `0x1022` 或 NUC 合成；`est_wz` 低估 ~25%（SENTRY-02） |
-| 最近验证 | ARM 0E0W，text **126,460** / data 732 / bss 128,784（2026-11-27 21:13，恢复 `1cc9e9f` 配置后）；`run_profile_tests.ps1`、`run_sentry_usb_tests.ps1`、`tests/run_sentry_axis_tests.py` PASS；`firmware/sentry.elf`、`current.elf` 已刷新；未烧录/台架 |
-| 下一步 | pitch 上电架空复核方向/软限位 → 自转掉电复测（功率控制关闭）→ 实体 USB 六消息抓包（保持接管关闭先验协议）→ 0x0503 世界 yaw 对齐 → pitch 平台补偿标定 → 功率模型复核 → 视觉连发台架 |
+| 功能状态 | 底盘/三轴云台/发射/遥控键鼠/仲裁/安全机制已手动整机实装；**NUC 是唯一上位机，通过 USB CDC 承载 NV v1 导航 + RMCV `0x1022/0x0503` 视觉**（旧 `0x1021` 仅兼容）；USART1 = 三轴编码器 VOFA；哨兵未装配 AX650；**pitch 已恢复使能且闭环稳定性符号已更正**（编码器闭环 `TORQUE_SIGN +1`、方向取 11-27 实测 `-1`、上电校准 0 位、枪管度软限位 ±15°、越界断力；摇杆 20°/s、死区 40；`SENTRY_AUTO_AIM_PITCH_ENABLE=0` 视觉不驱动 pitch，见 DEV-20261128-043140 / 040133）；**底盘功率控制临时关闭**（`CHASSIS_POWER_CTRL_EN=0`，自转掉电复测中） |
+| 证据等级 | 三轴零位/方向/限位/PID 均 `[待实测]`，首次上电必须架空逐轴确认符号后再闭环；**大 yaw 小陀螺速度环 Ki=2.0 已台架验证**（2026-11-27，拖拽 163→81°）；pitch 方向/硬限位/水平位为 11-27 单次手推读数；**pitch 稳定性符号 `+1` 为推导值（大 yaw 同款电机台架外推 + 主机被控对象收敛/发散对照），硬件前提待首推 5° 确认**；pitch 上电 0 位/±15°/保持力矩 `[待实测]`（上电前枪管放行程中间）；自瞄世界 yaw 偏置、pitch 平台补偿、功率模型 `MODEL_SCALE/MARGIN` 待台架标定 |
+| 已知缺口 | 哨兵功率模型参数沿用步兵，未在哨兵实车复核；`0x1022` 已传完整原始姿态但三轴轴向/符号/零位与 100 Hz 实链仍 `[待实测]`，pitch 水平绝对零位有效位保持 0；`est_wz` 低估 ~25%（SENTRY-02）；自瞄 pitch 映射把上电零位当作 0° 俯仰，未标定前关闭 |
+| 最近验证 | 已合入最新 `origin/sentry` e36aad9；ARM 0E0W，text 126,288 / data 740 / bss 128,936；profile/pitch/sentry USB 全绿；未烧录/台架 |
+| 下一步 | pitch 四步台架（零力手推方向 → 可选传动比 → 首推 5° 确认稳定性符号 → 松杆保持/重力前馈标定）→ 自转掉电复测（功率控制关闭）→ 实体 USB `0x1022` 抓包 → 0x0503 世界 yaw 对齐 → pitch 平台补偿标定（合成世界俯仰反馈）→ 功率模型复核 → 视觉连发台架 |
 
 ## 1. 链路与操作
 
 - **USART1 = 云台三轴编码器 VOFA**（921600 8N1，JustFloat，3×float + `00 00 80 7F`）。
-- **USB CDC = 唯一上位机链路**：NV v1 导航（`COMMAND/FEEDBACK/SYNC`，32 B）+ RMCV 视觉（`0x1021` 31 B / `0x0503` 39 B）；两协议共享字节流、各自按帧头重同步，`autonomy` 是唯一所有者。协议核心以 Avear 实测版为准，本分支将 `0x0503` 接入云台/发射自瞄。
+- **USB CDC = 唯一上位机链路**：NV v1 导航（`COMMAND/FEEDBACK/SYNC`，32 B）+ RMCV 视觉（`0x1022` 61 B / `0x0503` 39 B；旧 `0x1021` 兼容）；两协议共享字节流、各自按帧头重同步，`autonomy` 是唯一所有者。
 - **USART6 = 裁判系统**（115200 8N1）。
 - 自瞄激活：左中挡或键鼠 Shift；视觉 `shoot` 驱动连发；断帧 300 ms 回手动。
 - 导航接管：`SENTRY_AUTONOMY_ENABLE=1`，左右拨杆中位 + 左右摇杆回中 + NV COMMAND 有效；摇杆动作立即回手动。
@@ -48,6 +48,125 @@
 
 <!-- 格式:### DEV-YYYYMMDD-HHMMSS｜日期｜[SENTRY] 标题 -->
 
+### DEV-20261128-042342｜2026-11-28｜[SENTRY] USB 上行切换 `0x1022` 完整姿态
+
+**触发与批准**。用户提供 NUC—STM32 统一协议并明确要求按 `0xA5` 帧实现旧姿态 `0x1021` 与完整姿态 `0x1022`；该请求明确批准新增函数、扩展哨兵消息字段与调用链。
+
+**实现**。
+- 哨兵 USB 线上姿态由 31 B `0x1021` 切换为 61 B `0x1022`；旧 `vision_link_build_pose()` 和共享 `ax650_pose_pack()` 保留兼容。
+- `sentry_gimbal_feed_t` 新增小 yaw/pitch 采样时间；大 yaw、pitch 使用 DM CAN `rx_sample_us`。DJI 实例尚无 CAN 硬时间，小 yaw 按协议约定暂取在线时 200 Hz 云台快照 tick，并在文档中明确其证据等级。
+- `vision_link` 原子快照大 yaw IMU 四元数、三轴关节角与四路时间，补充弹速、robot_id、program_mode 和有效位。小 yaw 中位已有实测 ECD，bit4 置位；pitch 仍为上电参考位，bit5 保持 0。
+- `autonomy` 继续独占 USB；NV v1 和 `0x0503` 接收不变，USB 忙时 `0x1022` 顺延且无新 INS 样本不重复发帧。
+
+**验证**。共享层跨语言 61 B 黄金向量见 DEV-20261128-042039；`run_sentry_usb_tests.ps1`、`run_ax650_tests.ps1`、`run_chassis_tests.ps1`、`run_profile_tests.ps1` 均 PASS；同步最新 `origin/sentry` 后 ARM `build.ps1 sentry -Current` 0 error / 第一方 0 warning，text 126,244 / data 732 / bss 128,936；兵种范围、链接、命名、注释、源清单、宏、ABI、段占用均 PASS。
+
+**既有基线问题**。`run_fwk_tests.ps1` 到 fullchain harness 时仍因步兵 `gimbal_imu_data` 重复定义失败；G4 旧清单仍报告当前 `origin/sentry` 已有的 8 处 HAL 句柄/`while(1)` 红旗，本次 `0x1022` 改动未新增这些调用点。
+
+**待实测**。实体 USB 枚举与 100 Hz 帧率、四路时间单调性、三轴方向/零位、NUC 枪管姿态合成均需用户烧录后按 `ops/功能检查表.md` 验证；本次未烧录、未动实车。
+
+**AI**：OpenAI Codex（GPT-5），2026-11-28。
+
+### DEV-20261128-043140｜2026-11-28｜[SENTRY] pitch 根因更正：编码器闭环稳定性符号反了（正反馈）+ 枪管度/传动比口径 + 键鼠灵敏度对齐步兵
+
+**触发**。用户要求参考步兵 pitch 的控制逻辑,并猜测"是不是电机的转动参数给大了,指令转 1° 实际转 10°"。期间合并了 `origin/sentry`(c0103df):含 NUC 配置重构(041135)、小陀螺大 yaw(041921),以及 11-27 晚 main 上的 pitch 实测(`DIRECTION -1`、水平位 `-2.58163`、硬限位 `-112.2°~-181.7°`,DEV-20261127-203112/211402)。
+
+**更正 DEV-20261128-040133 第 6 条**。当时写"符号核对无问题(与 11-23 一致)",依据的是本分支旧基线里的 11-23 记录;上游 11-27 手推已证明**上抬时 `total_position` 减小**。更重要的是当时漏推了下面这一步。
+
+**根因(新)**。pitch 自 11-26 迁入 RM_shaobin2 起是**电机编码器闭环**(`position = total_position`),而 `SENTRY_PITCH_TORQUE_SIGN = -1` 是 11-23 **世界俯仰(IMU)闭环**时按"正力矩枪口下压"取的反号,迁移时原样保留("输出符号 -1 保留")。编码器闭环的稳定性符号只由电机决定:同款大 yaw DM4310 已台架验证 MIT 正力矩 → `total_position` 增大,负反馈要求 PID 正输出 → 正力矩,即 **+1**。保留 -1 等于**正反馈**:任何一点杆量产生的误差都被放大,直到撞软限位被"越界断力"拦下——与杆量大小无关。这就是"动了一下摇杆直接上抬到限位";用户猜测的"指令 1° 实际 10°"是同一现象的直观描述,但不是比例系数。
+- **主机复现**:`tests/run_sentry_pitch_tests.py` 用"正常达妙 + 轻枪管"(`v' = 20τ − 10v`)跑真实 `gimbal_pitch_task`:符号 +1 时杆推 10° 在 2 s 内收敛到 0.5° 内并保持、反向 10° 同样收敛;符号 -1 时同一命令发散到越界断力(`assert(motor.enabled)` 失败,已用临时改 config 复核)。
+- **硬件前提未在 pitch 上实测**:"pitch 电机与大 yaw 同向(正力矩 → 位置增大)"。台架首推 5° 即可确认,见下。
+
+**"10×"逐项核对(固件链路无比例错误)**。度/弧度常数正确;`cmd_task` 与 `gimbal_task` 同在 `run_200hz` 任务,`RATE × 0.005` 积分口径正确;DM 反馈映射 ±12.5 rad / ±30 rad/s / ±10 N·m 与大 yaw 台架数据吻合(46.4 s 24 圈 ↔ 192°/s);MIT 帧 Kp=Kd=0,位置字段不参与。机构传动比:11-27 手推硬限位电机轴 69.5° ↔ 枪管 69.5°(下压 35.7°/上抬 33.8°)→ **1:1**。**但确有一处 10.75 倍:`KBM_PITCH_SENS` 哨兵 0.43 vs 步兵 0.04**(仅键鼠路径;`KBM_PITCH_MAX_RATE 150°/s` 下轻碰即满速冲 ±15°),已对齐步兵。
+
+**参考步兵 pitch 的结论**。控制结构(角度环 P → 速度环 PI、输出侧重力前馈、目标角速度前馈、到位死区)哨兵已有(`sentry_axis_*`),差异只在:①**反馈源**——步兵闭在 IMU 枪管俯仰上,哨兵 IMU 在大 yaw 座上不随枪管俯仰,只能闭编码器(11-23 曾用"底座 IMU + 关节角"合成世界俯仰,可作下一步);②步兵的保持质量来自**台架标定的重力前馈**(DEV-20261116-03/04),哨兵钩子在、值为 0,且 `SENTRY_PITCH_INTEGRAL_NM 0.3` 偏小——这才是下一步"稳定保持"的关键,不是继续调杆速。
+
+**改动**(`config_gimbal.h` / `config_kbm.h` / `gimbal.c` / `sentry_def.h` 注释 / `ops/` 两份现场文档)。
+- `SENTRY_PITCH_TORQUE_SIGN -1 → +1`;新增运行期 `sentry_rt_pitch_torque_sign`(只认 ±1,其余回退 config),供首推反向时在线翻转。
+- 方向取上游 11-27 实测 `SENTRY_PITCH_DIRECTION -1`;软限位改为**枪管俯仰角**口径(负=下压,正=上抬),固件按 `DIR / 传动比` 换算到电机轴并排出上下界(DIR=-1 时"上抬"落在电机轴负侧,不能直接当 min/max)。
+- `SENTRY_PITCH_TRANSMISSION_RATIO`(原先定义了但无人引用)接入 pitch 映射,定义为**电机轴/枪管**(与大 yaw 同口径),默认 1.0 行为不变;新增运行期 `sentry_rt_pitch_ratio`;爬升限速按枪管度 × R。
+- 手动/自瞄映射与 `sentry_pitch_abs_deg` 同步除以传动比;`KBM_PITCH_SENS 0.43 → 0.04`。
+- pitch 段 6 个**定义了但控制链不引用**的宏(`ANGLE_IL / SPEED_IL / SPEED_MAXOUT / OUTPUT_LPF_RC / TRAVEL_DEG / MOUSE_RATE_DEG_S`)加注"未引用,生效的是 xxx",防止调错参数(实际生效:积分限幅 `SENTRY_PITCH_INTEGRAL_NM`、力矩上限 `SENTRY_PITCH_TORQUE_NM`、输出低通 `SENTRY_AXIS_OUTPUT_RC_S`)。
+- 测试:`run_sentry_pitch_tests.py` 重写——加入被控对象的收敛/发散对照、DIR 与传动比用例;`ops/功能检查表.md` 写入四步台架顺序,`ops/手柄操作手册.md` §8 补 4 个 pitch 运行期符号。
+
+**台架顺序(按序,前一步不过不进下一步)**。
+1. **方向**(零力):手抬枪管,`sentry_pitch_position_rad`(VOFA 通道 2)应**减小**;增大则先改 `DIRECTION +1`。
+2. **传动比**(可选):断电手推枪管 10°,`R = Δsentry_pitch_position_rad × 57.3 / 10`,≈1 不动。
+3. **首推符号**:枪管放行程中间上电 → 解锁 → 左纵杆轻推约 5° 立刻回中:上抬一点并稳住 = 对;**加速离开目标/冲向限位** = 右上急停,写 `sentry_rt_pitch_torque_sign = -1` 重试并回头改 config。
+4. **保持**:松杆纹丝不动。若缓慢下垂,读 `sentry_pitch_torque_nm`:恒 ±0.3 = 积分限幅不够,顶 ±1.0 = 力矩上限不够 → 按步兵 P2 方法标重力前馈,或确认连杆已修复后放大限幅。
+
+**验证**。`build.ps1 sentry -Current`:0 error、第一方 0 warning,text 126,924 / data 740 / bss 128,800,FLASH 127,672 B(12.18%)、RAM 74,592 B(56.91%)、CCM 54,944 B(83.84%);`run_profile_tests.ps1` 全绿(含 pitch 收敛/发散对照、DBUS pitch 用例、上游新增用例);`run_sentry_usb_tests.ps1` PASS;`check_robot_scope.py` PASS(兵种 7 / 共享 0);check-links / macros / golden(310/310) / dups / naming / comment_style / source_lists / abi 全 PASS。**未烧录、未台架**;稳定性符号的硬件前提待第 3 步确认。
+
+**AI**:GLM-5.4(WorkBuddy),2026-11-28。
+
+### DEV-20261128-041921｜2026-11-28｜[SENTRY] 小陀螺大yaw稳定性：摩擦前馈 + 小yaw母体角速度注入 + 重锚自动解除
+
+**触发**。用户反馈底盘小陀螺时大 yaw/小 yaw 稳定性差,大 yaw 尤其差。
+
+**根因分析**(代码级)。
+1. 大 yaw 小陀螺 = 纯世界速度环(`sentry_axis_update_speed`,目标 0),摩擦稳态负载 3.2~3.4 N·m
+   而 Kp=4.2,PI 从零积分起步填满需 ~9 s(与 Ki=2.0 台架"进入拖拽 81°/9s"吻合);
+   每次进/出小陀螺或模式切换都 `sentry_axis_reset` 清积分,拖拽反复发生。
+2. 小 yaw"母体世界角速度从参考值注入"只有 init 注释、从未实现(追溯 b8669a4 迁入原始版本即无):
+   载体晃多少枪口跟多少,小 yaw(直驱 GM6020,带宽潜力高)完全没参与世界稳像。
+3. 单帧任务超时(dt>20ms)或反馈掉帧即 `sentry_axis_reset` + rearm 锁存,而 rearm 只能切模式清除
+   ——一次毛刺 = 大 yaw 永久卸力到手动重进模式。
+4. 另:底盘小陀螺本身开环(`CHASSIS_ROTATE` 直接 wz=300 进运动学),est_wz 只做遥测,本轮不动。
+
+**改动**。
+- `config_gimbal.h`:新增 `SENTRY_BIG_YAW_FRICTION_FF_NM`(默认 0=关)、
+  `SENTRY_BIG_YAW_FRICTION_FF_RAMP_RAD_S 1.0`、`SENTRY_SMALL_YAW_CARRIER_INJ`(默认 0=关)、
+  `SENTRY_BIG_YAW_REARM_HEALTHY_CYCLES 20u`。
+- `gimbal.c`:①大 yaw 小陀螺时按关节速度软符号注入摩擦前馈 `τ_ff=FF·clamp(ω_j/RAMP)`,
+  总力矩仍夹在运行期力矩上限内(不放大 DM MIT 量程包络);②新增 `sentry_rt_big_yaw_fric_ff_nm`、
+  `sentry_rt_small_yaw_carrier_inj` 运行期变量(默认=config=0,上电行为不变);
+  ③新增 `sentry_big_yaw_world_speed_rad_s` 共享观察量,小 yaw 在角度 P 后注入
+  `ref -= INJ·载体世界角速度`(仅 IMU 在线时生效,方向不对把系数取负);
+  ④rearm 锁存改为连续 20 拍(100ms)健康自动解除,硬故障(超温/失联/掉使能)期间 healthy=false 不解除。
+- `tests/run_sentry_axis_tests.py`:生成器前缀补两个新 rt 变量(移植测试白名单)。
+
+**验证**。`build.ps1 sentry -Current`:0 error、第一方 0 warning,text 126,808 / data 732 /
+bss 128,800,CCM 83.8%≤90%;`run_profile_tests.ps1` 全矩阵 PASS(含大 yaw 任务移植回归:
+FF=0 时合成 300°/s 关节运动力矩恒 0、重锚冻结-恢复路径语义不变);`run_chassis_tests.ps1` PASS;
+`check_robot_scope.py` PASS。未烧录、未台架。
+
+**待实测(台架,前馈/注入默认关,烧录后行为与现版一致)**。
+1. 原地自转 300°/s:运行期写 `sentry_rt_big_yaw_fric_ff_nm` 从 2.0 起调(实测稳态负载 3.2~3.4),
+   判据:进入 1s 内世界角拖拽 <10°、稳态 |世界角速度| <2°/s、无 ≥3 Hz 振荡;
+2. 前馈生效后 `sentry_rt_big_yaw_speed_ki` 可从 2.0 回落 1.0~1.5 降风振;力矩 LPF
+   `SENTRY_BIG_YAW_TORQUE_LPF_RC_S` 0.03→0.015 试探提带宽;
+3. 小 yaw:`sentry_rt_small_yaw_carrier_inj` 从 0.3 起调,方向不对取负;配合把
+   `SENTRY_SMALL_YAW_DEADBAND_DEG_S` 3→1 试探(死区内 PID 输出清零=无阻尼);
+4. 单帧毛刺恢复:大 yaw 运行中碰线/松 CAN,应 100ms 内自行恢复出力而非永久卸力。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
+### DEV-20261128-040133｜2026-11-28｜[SENTRY] pitch 摇杆可控化：对称 ±15° 软限位 + 杆速 60→20°/s + 死区 10→40 + 0 位严格指上电位置
+
+**触发**。用户反馈"上电动了一下摇杆,pitch 直接上抬到限位,还是无法正常使用";要求逻辑:上电标定当前位置为 0 位 → 稳定保持 → 上下限位 → 可自由控制。
+
+**根因(静态排查,与现象逐条对上)**。
+1. **杆速与行程不匹配**:`cmd_remote.c` 的 `gimbal_cmd.pitch` 按 60°/s×杆量积分,而命令层夹在 `SENTRY_PITCH_MIN/MAX_ANGLE` = **[0°, 15°]**(095624 把下限设成 0):满杆 0.25 s、半杆 0.5 s 就积分到 15° 上限,任何轻碰都是"一推就到限位"。
+2. **死区只有 10 刻度**(满量程 660):回中偏置略超 10 就持续单向积分,慢慢爬到限位。
+3. **行程不对称 [0, 15]**:摇杆下推被夹在 0,只能上不能下,与"上下限位、自由控制"不符。
+4. **并列风险**:左中挡 = 自瞄待命,`SENTRY_AUTO_AIM_PITCH_ENABLE=1` 时视觉绝对角直接接管 pitch;该映射把"上电零位"当作相对平台 0° 俯仰,而零位是任意位置,未标定的视觉 pitch 同样会把枪管推到软限位。
+5. **"保持 0 位"不严格**:手动映射以解锁瞬间的位置为锚点(`start_rad`),上电到解锁之间电机无出力、枪管若下垂,保持的就是下垂后的位置而非上电 0 位。
+6. 符号/上电零位/首拍种子核对无问题:杆上推 → `pitch` 增大 → `total_position` 增大 → 抬枪(与 11-23 实测一致);`ZERO_AT_BOOT` 首个有效反馈锁 0 位;解锁首拍以当前角为爬升起点,零输出。**[已更正,见 DEV-20261128-043140:方向按 11-27 手推为 -1;且编码器闭环的稳定性符号当时漏推,`TORQUE_SIGN` 应为 +1——本条其余 1~5 项仍成立。]**
+
+**改动**(`config_gimbal.h` / `cmd_remote.c` / `gimbal.c` / `cmd_authority.c` / `sentry_def.h` 注释)。
+- `SENTRY_PITCH_MIN_DEG 0 → -15`,与 `MAX_DEG 15` 对称;`SENTRY_PITCH_MIN/MAX_ANGLE` 别名、gimbal 软限位、运行期 `sentry_rt_pitch_min/max_deg` 默认值自动跟随。
+- 新增 `SENTRY_PITCH_STICK_RATE_DEG_S 20`(杆速;原与 gimbal 目标爬升 `SENTRY_PITCH_RATE_DEG_S 60` 共用一个宏,后者只管爬升);新增 `SENTRY_PITCH_STICK_DEADBAND 40`(原硬编码 10)。
+- `cmd_remote.c`:杆量死区外按(杆量−死区)线性积分,越过死区从 0 速起步。
+- `gimbal.c` pitch 手动映射改为**绝对**:`requested = pitch_zero + DIR × cmd.pitch`,`cmd.pitch` 语义固定为"相对上电零位的角度"(0 = 保持上电位置);删除 `sentry_pitch_start_rad/command_start_deg` 两个锚点状态。解锁/重入时若枪管已偏离上电位,以 60°/s 爬回 0 位。所有重入路径(急停/失联/锁存)都要重新解锁,`cmd.pitch` 同时归 0,口径一致。
+- `SENTRY_AUTO_AIM_PITCH_ENABLE 1 → 0`:pitch 恒手动,视觉不再驱动 pitch(大 yaw 自瞄不受影响)。
+- 测试:新增 `tests/run_sentry_pitch_tests.py`(抽取真实 `gimbal_pitch_task` + 真实串级 PID:上电锁存、下垂 3° 后回 0 位、首拍零输出、±15° 对称与越界命令夹限、越界断力/重锚/恢复、反馈丢失),接入 `run_profile_tests.ps1`;`tests/sentry_remote_test.c` 新增杆量死区/半杆速率/上下限位用例(须放在鼠标用例之前:鼠标活动会把 `input_source` 切到 KBM,之后不再走 `cmd_remote_set`)。
+
+**操作要求**。**上电前把枪管放到行程中间**——零位在哪,±15° 就从哪算;放在行程端点会有一侧顶硬限位(电机以 ≤1.0 N·m 顶住)。左下挡(或左中挡且无视觉目标)+ 左纵杆上/下推,在 ±15° 内自由控制,满杆 1.5 s 走完半行程。`ops/功能检查表.md` A/C/D 三处 pitch 条目已同步(上电放行程中间、±15°、杆速/死区、视觉不驱动 pitch)。
+
+**验证**。`build.ps1 sentry -Current`:0 error、第一方 0 warning,text 127,588 / data 736 / bss 128,792,FLASH 128,332 B(12.24%)、RAM 74,576 B(56.90%)、CCM 54,944 B(83.84%);`run_profile_tests.ps1` 全绿(含新增 pitch 实任务用例与 DBUS pitch 用例);`check_robot_scope.py` WARN(兵种 7 文件 + 共享 1 文件 = `tests/run_profile_tests.ps1` 一行注册,与此前 `sentry(test)` 提交同口径,待回流 main);check-links / macros / golden / dups / naming / comment_style / source_lists 全 PASS;G4 仍是 U3/U4 前旧清单的 9 处既有红旗(§3 DEV-20261127-084627-B),本次未新增句柄/死循环。**未烧录、未台架。**
+
+**待实测(关闭条件)**。① 解锁后枪管稳稳保持不动(手推有回弹);② 轻碰摇杆只走 1~2°,不再冲限位;③ 上、下各能到 ±15° 并停住;④ 回中不漂移。若保持时缓慢下垂,看 `sentry_pitch_torque_nm`:恒在 ±0.3 附近 = 积分限幅 `SENTRY_PITCH_INTEGRAL_NM` 不够(重力矩 > 0.3 N·m);顶到 ±1.0 = 力矩上限 `SENTRY_PITCH_TORQUE_NM` 不够——先架空再调。**自瞄 pitch 恢复条件**:标定"上电零位对应的枪管世界 pitch"并在退回手动时同步 `gimbal_cmd.pitch` 到当前角(绝对映射下否则会爬回上一个手动命令),再把 `SENTRY_AUTO_AIM_PITCH_ENABLE` 改回 1。
+
+**AI**:GLM-5.4(WorkBuddy),2026-11-28。
 ### DEV-20261127-211402｜2026-11-27｜[SENTRY] 撤销回退：恢复 1cc9e9f 哨兵配置
 
 **触发**。用户指示"更新回来"，即撤销 DEV-20261127-203844 的回退，恢复被撤的哨兵配置。
@@ -424,6 +543,16 @@
 - 验证通过：`build.ps1 sentry -Current`；`run_chassis_tests.ps1`；`run_ax650_tests.ps1`；`run_profile_tests.ps1`；新增 `run_sentry_usb_tests.ps1` 的 `-O0/-Ofast`；兵种范围守卫；文档链接检查。
 - 已执行但未通过：`run_fwk_tests.ps1` 在未修改的步兵整链 harness 重复定义 `gimbal_imu_data` 处失败；G4 旧基线在干净 `origin/sentry` 已存在的 9 处红旗上失败。两项未由本分支改动引入，见问题台账。
 - 未执行：烧录、实体 USB 枚举与抓包、NUC 双端闭环、云台/发射/底盘运动；这些仍须用户现场验证。
+
+### DEV-20261128-041135｜2026-11-28｜[SENTRY] 哨兵通信配置改为 NUC 语义
+
+- 目标：按实车事实移除哨兵应用与配置中的 AX650 设备语义；哨兵上位机为 NUC，固定通过 USB CDC 通信。
+- 实现：`config_ax650.h` 更名为 `config_nuc.h`，哨兵 USB 开关、周期、超时和默认字段统一为 `SENTRY_NUC_RMCV_*`；删除哨兵 USART1 AX650 装配分支，USART1 继续只供三轴编码器 VOFA；cmd 原始视觉 yaw 诊断符号改为 `nuc_raw_yaw_target` / `cmd_get_nuc_raw_yaw()`。
+- 兼容：线上 NV v1 与 RMCV `0x1021/0x0503` 字节协议不变；共享 `components/ax650/ax650_pose` 仅作为历史协议编解码实现保留。因共享 CMake 仍编译未注册的 `ax650_uart1.c`，`config_nuc.h` 底部保留关闭态编译别名，不代表运行期使用 AX650。
+- 验证：`run_sentry_usb_tests.ps1`、`run_profile_tests.ps1`、`run_ax650_tests.ps1` 均 PASS；robot-scope、命名、宏/重复宏、注释、文档链接和源码清单检查均 PASS；`build.ps1 sentry -Current` 成功，text 126,604 / data 732 / bss 128,808，输出 `firmware/sentry.elf`。构建仍有既存 CMake CMP0175 开发警告及 newlib syscall 链接警告；会话开工 G4 在干净基线既存的 9 处红旗上失败，本改动未新增红旗。
+- 未执行：烧录、实体 USB 枚举与 NUC 双端抓包；实体功能仍需现场验证。
+- 哨兵影响：[SENTRY] 仅 `apps/sentry/**`、`config/sentry_2026/**`、哨兵测试和 `.Doc/robots/sentry/**`；共享层与其他兵种无行为改动。
+- AI：OpenAI Codex（GPT-5）。
 
 ## 5. 历史
 

@@ -89,6 +89,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'SI regression failed' }
     & python tests/run_sentry_axis_tests.py
     if ($LASTEXITCODE -ne 0) { throw 'Big yaw task regression failed' }
+    & python tests/run_sentry_pitch_tests.py
+    if ($LASTEXITCODE -ne 0) { throw 'Pitch task regression failed' }
     & gcc @taskCommon @taskSentryIncludes tests/sentry_dm_port_test.c -lm -o tests/build/sentry_dm_port_test.exe
     if ($LASTEXITCODE -ne 0) { throw 'DM compilation failed' }
     & ./tests/build/sentry_dm_port_test.exe

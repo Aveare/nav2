@@ -25,7 +25,7 @@ typedef struct
     test_shoot_data_t ShootData;
 } referee_info_t;
 
-/* 测试里没有裁判数据:返回 NULL,0x1021 保持配置占位值。 */
+/* 测试里没有裁判数据:返回 NULL,姿态帧保持配置占位值。 */
 static inline referee_info_t *referee_get_info(void)
 {
     return 0;

@@ -3,7 +3,7 @@
  * @brief 哨兵三轴独立控制，移植自RM_shaobin2的在机调试行为
  * @layer APP
  * @author 小猫大王
- * @note 大yaw普通回正/小陀螺纯世界速度补偿；pitch为电机轴增量；小yaw独立相对角。
+ * @note 大yaw普通回正/小陀螺纯世界速度补偿；pitch为电机轴编码器闭环(命令/限位按枪管俯仰角经 DIR/传动比换算)；小yaw独立相对角。
  */
 #include "gimbal.h"
 #include "sentry_def.h"
@@ -40,6 +40,10 @@ volatile float sentry_rt_pitch_gravity_a = SENTRY_PITCH_GRAVITY_A;
 volatile float sentry_rt_pitch_gravity_b = SENTRY_PITCH_GRAVITY_B;
 volatile float sentry_rt_pitch_gravity_phase_deg = SENTRY_PITCH_GRAVITY_PHASE_DEG;
 volatile float sentry_rt_small_yaw_limit_deg = SENTRY_SMALL_YAW_LIMIT_DEG;
+volatile float sentry_rt_big_yaw_fric_ff_nm = SENTRY_BIG_YAW_FRICTION_FF_NM;
+volatile float sentry_rt_small_yaw_carrier_inj = SENTRY_SMALL_YAW_CARRIER_INJ;
+volatile float sentry_rt_pitch_ratio = SENTRY_PITCH_TRANSMISSION_RATIO;
+volatile float sentry_rt_pitch_torque_sign = SENTRY_PITCH_TORQUE_SIGN;
 static usart_t *gimbal_vofa_usart;
 static attitude_t *gimbal_imu_data;
 static msg_pub_t gimbal_pub;
@@ -55,6 +59,7 @@ volatile uint8_t sentry_big_yaw_front_align_valid;
 static sentry_axis_controller_t sentry_yaw_controller;
 /* 关节角与世界角分别观察；控制域随小陀螺模式切换。 */
 volatile float sentry_big_yaw_world_rad;
+volatile float sentry_big_yaw_world_speed_rad_s; // 载体世界角速度(IMU Gyro[2]),小yaw注入与遥测共用
 volatile float sentry_big_yaw_torque_nm;
 volatile float sentry_big_yaw_speed_target_rad_s;
 volatile uint8_t sentry_big_yaw_rearm_required;
@@ -67,6 +72,7 @@ volatile uint8_t sentry_big_yaw_driver_state = 0xffu; // 首帧到达前没有�
 volatile uint8_t sentry_big_yaw_control_active;
 volatile uint8_t sentry_big_yaw_in_deadband; // 1 = 误差在到位死区内,力矩已归零
 static uint8_t sentry_big_yaw_band_latched;  // 到位滞回状态(1=在带内;出带需超过退出阈值)
+static uint8_t sentry_big_yaw_healthy_streak; // 连续健康拍数,重锚锁存自动解除用
 static uint8_t sentry_big_yaw_auto_aim_active; // 上一拍是否在自瞄世界位置环
 static float sentry_small_yaw_auto_target_deg; // 大 yaw 分配出的小 yaw 目标,deg
 static float sentry_small_yaw_trim_deg;        // 自瞄小 yaw 慢配平状态,deg
@@ -86,7 +92,6 @@ enum { SENTRY_BIG_YAW_MAX_FEEDBACK_AGE_CYCLES = DM_ENABLE_RETRY_MS / DM_TASK_CYC
 
 static dm_motor_t *sentry_pitch_motor;
 static uint8_t sentry_pitch_reference_initialized;
-static float sentry_pitch_start_rad, sentry_pitch_command_start_deg;
 static float sentry_pitch_last_ms;
 static float sentry_pitch_abs_deg;
 #if SENTRY_PITCH_ZERO_AT_BOOT
@@ -191,7 +196,8 @@ void gimbal_init(void)
     else
         LOG_ERROR("[sentry] pitch DM registration failed");
     /* 小 yaw:GM6020,速度环常开做自由稳像。反馈用电机自身编码器(相对大 yaw 的速度),
-     * 稳定所需的"母体世界角速度"不进反馈,而是从参考值注入(见 gimbal_small_yaw_task)。 */
+     * 稳定所需的"母体世界角速度"不进反馈,而是从参考值注入(gimbal_small_yaw_task,
+     * 系数 SENTRY_SMALL_YAW_CARRIER_INJ,默认 0=只保持关节角)。 */
     motor_init_config_t small_yaw_config = {
         .can_init_config = {
             .can_handle = SENTRY_SMALL_YAW_CAN_BUS == 2u ? &hcan2 : &hcan1,
@@ -305,10 +311,28 @@ static void gimbal_big_yaw_task(float now_ms)
         (!world_requested || sentry_big_yaw_imu_online);
     sentry_big_yaw_position_rad = position;
     sentry_big_yaw_world_rad = world;
+    sentry_big_yaw_world_speed_rad_s = world_speed;
     sentry_big_yaw_feedback_online = online;
     sentry_big_yaw_driver_state = motor->rx_init_flag ? motor->measure.state : 0xffu;
-    if (!command_active) sentry_big_yaw_rearm_required = 0u;
-    else if (sentry_big_yaw_control_active && !healthy) sentry_big_yaw_rearm_required = 1u;
+    if (!command_active)
+    {
+        sentry_big_yaw_rearm_required = 0u;
+        sentry_big_yaw_healthy_streak = 0u;
+    }
+    else if (sentry_big_yaw_control_active && !healthy)
+    {
+        sentry_big_yaw_rearm_required = 1u;
+        sentry_big_yaw_healthy_streak = 0u;
+    }
+    else if (healthy)
+    {
+        /* 瞬时毛刺(任务超时/反馈掉帧)在连续健康后自动恢复,不再永久卸力;
+         * 硬故障(超温/失联/掉使能)期间 healthy=false,锁存保持。 */
+        if (sentry_big_yaw_healthy_streak < 255u) sentry_big_yaw_healthy_streak++;
+        if (sentry_big_yaw_rearm_required &&
+            sentry_big_yaw_healthy_streak >= SENTRY_BIG_YAW_REARM_HEALTHY_CYCLES)
+            sentry_big_yaw_rearm_required = 0u;
+    }
 
     if (healthy && command_active && !sentry_big_yaw_rearm_required)
     {
@@ -412,6 +436,24 @@ static void gimbal_big_yaw_task(float now_ms)
             else
                 sentry_big_yaw_speed_target_rad_s = sentry_yaw_controller.speed_target_rad_s;
 
+            if (world_requested)
+            {
+                /* 小陀螺摩擦前馈:同步带/轴承沿底盘旋向拖拽载体,拖拽力矩与关节速度反号,
+                 * 故前馈与关节速度同号(制动方向)。PI 积分只补残差,消除进入拖拽。 */
+                float fric_ff = sentry_rt_big_yaw_fric_ff_nm;
+                if (!(fric_ff >= 0.0f && fric_ff <= 5.0f))
+                    fric_ff = SENTRY_BIG_YAW_FRICTION_FF_NM;
+                if (fric_ff > 0.0f)
+                {
+                    const float s =
+                        fminf(1.0f, fmaxf(-1.0f, speed / SENTRY_BIG_YAW_FRICTION_FF_RAMP_RAD_S));
+                    torque_cmd += fric_ff * s;
+                    /* 总力矩仍夹在运行期力矩上限内:前馈替代的是积分原本承担的份额,
+                     * 不放大输出包络(超出会顶到 DM MIT 映射量程)。 */
+                    torque_cmd = fminf(torque_limit, fmaxf(-torque_limit, torque_cmd));
+                }
+            }
+
             const float dt_s = (now_ms - sentry_big_yaw_last_ms) * 0.001f;
             sentry_big_yaw_last_ms = now_ms;
             if (dt_s > 0.0f && dt_s < 0.1f)
@@ -455,7 +497,7 @@ static void gimbal_pitch_task(float now_ms)
                           (gimbal_cmd_recv.aim_valid != 0u) && SENTRY_AUTO_AIM_PITCH_ENABLE;
     static uint8_t pitch_auto_prev;
     if (pitch_auto_prev && !auto_aim)
-        sentry_pitch_reference_initialized = 0u; // 自瞄退回手动:重新锚定
+        sentry_pitch_reference_initialized = 0u; // 自瞄退回手动:目标从当前角重新爬向手动命令,不跳变
     pitch_auto_prev = auto_aim ? 1u : 0u;
     /* 自瞄给 pitch 更高的速度/力矩上限与目标爬升率;手动保持原值。 */
     sentry_pitch_controller.angle.MaxOut =
@@ -467,11 +509,11 @@ static void gimbal_pitch_task(float now_ms)
         (gimbal_cmd_recv.mode == GIMBAL_GYRO_MODE ||
          gimbal_cmd_recv.mode == GIMBAL_FREE_MODE ||
          gimbal_cmd_recv.mode == GIMBAL_AUTO_AIM_MODE);
-    /* 连杆几何未知，闭环量仅为4310输出轴角/速度，不宣称是实际俯仰角。 */
+    /* 闭环量是 4310 电机轴角/速度;摇杆命令与软限位是枪管俯仰角,经 DIR/传动比换算到电机轴。 */
     const float position = motor->measure.total_position;
     const float speed = motor->measure.velocity;
 #if SENTRY_PITCH_ZERO_AT_BOOT
-    /* 上电校准:首个有效反馈即 0°(上电前枪管放最低位)。 */
+    /* 上电校准:首个有效反馈即 0 位(上电前枪管放行程中间)。 */
     if (!sentry_pitch_boot_ref_valid && online && isfinite(position))
     {
         sentry_pitch_boot_ref_rad = position;
@@ -494,8 +536,18 @@ static void gimbal_pitch_task(float now_ms)
         pitch_min_deg = SENTRY_PITCH_MIN_DEG;
         pitch_max_deg = SENTRY_PITCH_MAX_DEG;
     }
-    const float pitch_min_rad = pitch_zero + pitch_min_deg * FW_DEG_TO_RAD;
-    const float pitch_max_rad = pitch_zero + pitch_max_deg * FW_DEG_TO_RAD;
+    /* 传动比 R = 电机轴角 / 枪管俯仰角,运行期可写,非法值回退 config。 */
+    float pitch_ratio = sentry_rt_pitch_ratio;
+    if (!(isfinite(pitch_ratio) && pitch_ratio >= 0.05f && pitch_ratio <= 20.0f))
+        pitch_ratio = SENTRY_PITCH_TRANSMISSION_RATIO;
+    /* 软限位以枪管俯仰角定义(负=下压,正=上抬),按 DIR/R 换算到电机轴后再排出上下界:
+     * DIR=-1 时"上抬"落在电机轴负侧,不能直接把 min/max 当电机轴的上下界用。 */
+    const float pitch_min_cmd_rad =
+        pitch_zero + SENTRY_PITCH_DIRECTION * pitch_min_deg / pitch_ratio * FW_DEG_TO_RAD;
+    const float pitch_max_cmd_rad =
+        pitch_zero + SENTRY_PITCH_DIRECTION * pitch_max_deg / pitch_ratio * FW_DEG_TO_RAD;
+    const float pitch_min_rad = fminf(pitch_min_cmd_rad, pitch_max_cmd_rad);
+    const float pitch_max_rad = fmaxf(pitch_min_cmd_rad, pitch_max_cmd_rad);
     const float pitch_margin_rad = SENTRY_PITCH_LIMIT_MARGIN_DEG * FW_DEG_TO_RAD;
     const bool pitch_in_range = position >= pitch_min_rad - pitch_margin_rad &&
                                 position <= pitch_max_rad + pitch_margin_rad;
@@ -508,8 +560,9 @@ static void gimbal_pitch_task(float now_ms)
     sentry_pitch_last_ms = now_ms;
     sentry_pitch_position_raw = motor->measure.position_raw;
     sentry_pitch_position_rad = position;
+    /* 枪管世界俯仰观察值 = 平台 IMU 俯仰 + 枪管相对角(电机轴角 × DIR / R)。 */
     sentry_pitch_abs_deg = gimbal_imu_data->Pitch +
-        (position - pitch_zero) * FW_RAD_TO_DEG * SENTRY_AUTO_AIM_PITCH_WORLD_DIR;
+        (position - pitch_zero) / pitch_ratio * FW_RAD_TO_DEG * SENTRY_AUTO_AIM_PITCH_WORLD_DIR;
     sentry_pitch_feedback_online = online;
     sentry_pitch_driver_state = motor->rx_init_flag ? motor->measure.state : 0xffu;
     if (!command_active) sentry_pitch_rearm_required = 0u;
@@ -519,33 +572,34 @@ static void gimbal_pitch_task(float now_ms)
     {
         if (!sentry_pitch_reference_initialized)
         {
-            /* 首次进入(手动或自瞄)都以当前实测角为种子,避免首拍从 0 追到目标。 */
-            sentry_pitch_start_rad = position;
-            sentry_pitch_command_start_deg = gimbal_cmd_recv.pitch;
+            /* 首次进入以当前实测角为爬升起点:目标从当前位置按 RATE 爬向命令,首拍不满速追目标。 */
             sentry_pitch_target_rad = position;
             sentry_pitch_reference_initialized = 1u;
         }
         float requested;
         if (auto_aim)
         {
-            /* 视觉给世界枪管 pitch:关节目标 = 上电零位 + (世界目标 - 平台俯仰)。
-             * 连杆几何未知,小角度线性近似;限位用上电零位 + 相对软限位兜底。 */
+            /* 视觉给世界枪管 pitch:关节目标 = 上电零位 + (世界目标 - 平台俯仰) × DIR / R。
+             * 小角度线性近似;限位用上电零位 + 相对软限位兜底。 */
             const float platform_pitch = gimbal_imu_data->Pitch;
             requested = pitch_zero +
-                        (gimbal_cmd_recv.pitch_abs - platform_pitch) * FW_DEG_TO_RAD *
+                        (gimbal_cmd_recv.pitch_abs - platform_pitch) / pitch_ratio * FW_DEG_TO_RAD *
                             SENTRY_AUTO_AIM_PITCH_WORLD_DIR;
             MOTOR_LIMIT_MIN_MAX(requested, pitch_min_rad, pitch_max_rad);
         }
         else
         {
-            const float delta = SENTRY_PITCH_DIRECTION *
-                                (gimbal_cmd_recv.pitch - sentry_pitch_command_start_deg) * FW_DEG_TO_RAD;
-            requested = sentry_pitch_start_rad + delta;
+            /* 手动命令 pitch = 相对上电零位的枪管俯仰角(cmd 层已夹在 MIN/MAX_ANGLE):
+             * 电机轴目标 = 上电零位 + DIR × 命令 / R。零位是上电锁存的,不随解锁/重入时的
+             * 位置漂移,所以"保持 0 位"始终指上电标定的那个位置。 */
+            requested = pitch_zero +
+                        SENTRY_PITCH_DIRECTION * gimbal_cmd_recv.pitch / pitch_ratio * FW_DEG_TO_RAD;
             MOTOR_LIMIT_MIN_MAX(requested, pitch_min_rad, pitch_max_rad);
         }
+        /* 爬升限速以枪管度计(摇杆命令 20°/s),乘 R 换算到电机轴。 */
         const float step =
             (auto_aim ? SENTRY_AUTO_AIM_PITCH_RATE_DEG_S : SENTRY_PITCH_RATE_DEG_S) *
-            FW_DEG_TO_RAD * dt;
+            pitch_ratio * FW_DEG_TO_RAD * dt;
         sentry_pitch_target_rad += fminf(step, fmaxf(-step, requested - sentry_pitch_target_rad));
         if (sentry_axis_update(&sentry_pitch_controller, position, speed, sentry_pitch_target_rad, now_ms))
         {
@@ -564,7 +618,14 @@ static void gimbal_pitch_task(float now_ms)
                                 SENTRY_PITCH_MAX_TORQUE_NM);
             sentry_pitch_torque_nm = torque_total;
             sentry_pitch_speed_target_rad_s = sentry_pitch_controller.speed_target_rad_s;
-            dm_motor_set_mit_torque(motor, sentry_pitch_torque_nm * SENTRY_PITCH_TORQUE_SIGN);
+            /* 稳定性符号:编码器闭环下"PID 正输出 → 电机朝增大位置的方向转"为负反馈。
+             * 运行期只接受 ±1,其余(含 NaN/0)回退 config,供台架首推反向时在线翻转。 */
+            const float torque_sign = (sentry_rt_pitch_torque_sign < 0.0f)
+                                          ? -1.0f
+                                          : ((sentry_rt_pitch_torque_sign > 0.0f)
+                                                 ? 1.0f
+                                                 : SENTRY_PITCH_TORQUE_SIGN);
+            dm_motor_set_mit_torque(motor, sentry_pitch_torque_nm * torque_sign);
             dm_motor_enable(motor);
             sentry_pitch_control_active = 1u;
             return;
@@ -660,6 +721,13 @@ static void gimbal_small_yaw_task(float now_ms)
     const float db = SENTRY_SMALL_YAW_ANGLE_DEADBAND_DEG;
     float err_eff = (fabsf(err) <= db) ? 0.0f : (err - ((err > 0.0f) ? db : -db));
     float ref = SENTRY_SMALL_YAW_ANGLE_KP * err_eff;
+    /* 母体世界角速度注入:载体(大yaw座)晃动时小yaw反向补偿,枪口世界稳像;
+     * 大yaw世界环管低频,小yaw直驱补高频。仅 IMU 在线时生效,系数运行期可写,默认 0。 */
+    float carrier_inj = sentry_rt_small_yaw_carrier_inj;
+    if (!(carrier_inj >= -2.0f && carrier_inj <= 2.0f))
+        carrier_inj = SENTRY_SMALL_YAW_CARRIER_INJ;
+    if (carrier_inj != 0.0f && sentry_big_yaw_imu_online)
+        ref -= carrier_inj * sentry_big_yaw_world_speed_rad_s * FW_RAD_TO_DEG;
     if (ref > SENTRY_SMALL_YAW_MAX_SPEED_DEG_S) ref = SENTRY_SMALL_YAW_MAX_SPEED_DEG_S;
     else if (ref < -SENTRY_SMALL_YAW_MAX_SPEED_DEG_S) ref = -SENTRY_SMALL_YAW_MAX_SPEED_DEG_S;
 

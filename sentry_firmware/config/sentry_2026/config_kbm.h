@@ -8,7 +8,8 @@
 #pragma once
 
 #define KBM_YAW_SENS 0.7f          /* [待实测] 鼠标 x → 世界 yaw 增量,deg/帧计数 */
-#define KBM_PITCH_SENS 0.43f       /* [待实测] 鼠标 y → pitch 增量,deg/帧计数 */
+#define KBM_PITCH_SENS 0.04f       /* [参考-步兵 2026-11-28] 鼠标 y → pitch 增量,deg/帧计数(步兵台架同值 0.04);
+                                    * 原 0.43 是步兵的 10.75 倍,±15° 行程下轻碰就满速冲限位 */
 #define KBM_DBUS_FRAME_S 0.014f    /* [规格] DBUS 帧周期,s */
 #define KBM_CMD_DT_S 0.005f        /* [规格] cmd 控制周期,s(200Hz) */
 #define KBM_SLOW_RATIO 0.4f        /* [待实测] Shift 慢速比例 */

@@ -8,6 +8,7 @@
 /* 编译真实CMD应用、DBUS遥控、消息中心与守护线程,仅模拟串口收发.
  * 仲裁输出通过订阅话题断言,不依赖底盘/电机. */
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -172,6 +173,23 @@ int main(void)
     Pump(); ExpectSafe();
     RcFrame(0,0,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump(); ExpectSafe();
     Unlock(); ArmFollow();
+    /* pitch(须在键鼠测试之前:鼠标活动会把 input_source 切到 KBM,之后不再走 cmd_remote_set):
+     * 解锁零位 = 0°;杆量死区内不积分;死区外按 STICK_RATE 积分;上下对称夹在 ±15°。 */
+    assert(gimbal_cmd_ut.pitch == 0.0f);
+    RcFrame(0,0,0,20,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump();
+    assert(gimbal_cmd_ut.pitch == 0.0f); // 20 < 死区 40:回中偏置不再单向爬到限位
+    RcFrame(0,0,0,350,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18);
+    for (int i = 0; i < 10; ++i) Pump();
+    /* 半杆 effort = (350-40)/(660-40) = 0.5 → 每拍 20°/s × 5 ms × 0.5 = +0.05° */
+    assert(fabsf(gimbal_cmd_ut.pitch - 0.5f) < 0.01f);
+    RcFrame(0,0,0,660,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18);
+    for (int i = 0; i < 200; ++i) Pump(); // 满杆 20°/s × 1 s = +20°,超过上限
+    assert(gimbal_cmd_ut.pitch == SENTRY_PITCH_MAX_ANGLE && gimbal_cmd_ut.pitch == 15.0f);
+    RcFrame(0,0,0,-660,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18);
+    for (int i = 0; i < 200; ++i) Pump(); // 15° − 20° = −5°:穿过零位继续下行
+    assert(gimbal_cmd_ut.pitch < 0.0f && gimbal_cmd_ut.pitch > SENTRY_PITCH_MIN_ANGLE);
+    for (int i = 0; i < 200; ++i) Pump(); // 再下行 20°:夹在下限 −15°(原 MIN=0 时只能停在 0)
+    assert(gimbal_cmd_ut.pitch == SENTRY_PITCH_MIN_ANGLE && gimbal_cmd_ut.pitch == -15.0f);
     RcFrame(0,660,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump();
     assert(chassis_cmd_ut.vx == CHASSIS_MAX_SPEED && chassis_cmd_ut.vy == 0);
     RcFrame(0,-660,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump();
@@ -204,6 +222,6 @@ int main(void)
     Unlock(); ArmFollow();
     RcFrame(0,0,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,17); Pump(); for(int i=0;i<20;++i) daemon_task(); Pump(); ExpectSafe();
     RcFrame(0,0,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump(); ExpectSafe();
-    puts("PASS: sentry DBUS four-way drive, steering/small-yaw split, spin exit, dial, mouse and safety");
+    puts("PASS: sentry DBUS four-way drive, steering/small-yaw split, spin exit, dial, mouse, safety and pitch stick deadband/rate/symmetric limits");
     return 0;
 }

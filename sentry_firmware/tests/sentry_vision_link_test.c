@@ -1,6 +1,6 @@
 /**
  * @file    sentry_vision_link_test.c
- * @brief   vision_link 主机测试:0x0503 分片/校验/超时 + 0x1021 打包
+ * @brief   vision_link 主机测试:0x0503 分片/校验/超时 + 0x1021/0x1022 打包
  * @layer   TESTS
  * @author  小猫大王
  */
@@ -107,6 +107,22 @@ int main(void)
     ekf_ins.UpdateCount = 2u;
     fake_ms += 10u;
     assert(vision_link_build_pose(frame, sizeof(frame), fake_ms) == 31u);
+
+    /* 新版线上路径发送 0x1022，旧 0x1021 只保留兼容。 */
+    vision_link_init();
+    ekf_ins.UpdateCount = 3u;
+    vision_link_update_gimbal(0.25f, -0.5f, 0.125f, 101u, 102u, 103u,
+                              AX650_POSE_VALID_BIG_YAW | AX650_POSE_VALID_SMALL_YAW |
+                                  AX650_POSE_VALID_PITCH | AX650_POSE_CALIBRATED_SMALL_YAW |
+                                  AX650_POSE_GIMBAL_ONLINE);
+    vision_link_set_mode(1u);
+    vision_link_set_projectile_speed(24.0f);
+    vision_link_set_robot_id(7u);
+    fake_ms += 10u;
+    assert(vision_link_build_full_pose(frame, sizeof(frame), fake_ms) == 61u);
+    assert(frame[0] == 0xA5u && frame[5] == 0x22u && frame[6] == 0x10u);
+    assert(frame[55] == 0xDFu && frame[56] == 0x03u);
+    assert(frame[57] == 1u && frame[58] == 7u);
 
     printf("sentry vision_link tests passed\n");
     return 0;

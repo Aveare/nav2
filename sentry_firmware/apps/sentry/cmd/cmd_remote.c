@@ -4,14 +4,13 @@
  * @layer   APP
  * @author  小猫大王
  * @note    左中横杆控制底盘转向，左下横杆控制小 yaw；左纵杆控制 pitch，右杆控制平移。
- * @note    AX650 关闭时左中挡退化为普通遥控;右中挡底盘不跟随大 yaw;左上/右上是急停挡。
+ * @note    NUC 自瞄无有效目标时左中挡退回手动；右中挡底盘不跟随大 yaw；左上/右上是急停挡。
  */
 #include "robot_def.h"
 #include "robot_cmd.h"
 #include "robot_cmd_internal.h"
 #include "remote_control.h"
 #include "ins_task.h"
-#include "ax650_uart1.h"
 #include "general_def.h"
 #include "can_port.h"
 #include "motor_def.h"
@@ -38,13 +37,22 @@ void cmd_remote_set(void)
     if (!right_up)
         gimbal_cmd.mode = aim_ctrl ? GIMBAL_AUTO_AIM_MODE : GIMBAL_GYRO_MODE;
 
-    // 角目标增量:200Hz下左横杆最大180deg/s,左纵杆60deg/s
+    // 角目标增量:200Hz 下左横杆最大 180deg/s;左纵杆满量程 SENTRY_PITCH_STICK_RATE_DEG_S。
+    // pitch 目标 = 相对上电零位的角度,夹在 [SENTRY_PITCH_MIN_ANGLE, SENTRY_PITCH_MAX_ANGLE]。
     // 自瞄时 pitch 由视觉绝对目标接管,杆量不再叠加。
     if (!aim_ctrl && robot_state == ROBOT_STATUS_READY && remote_control_is_online() &&
         !right_up)
     {
-        if (MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.rocker_l1) > 10)
-            gimbal_cmd.pitch += SENTRY_PITCH_RATE_DEG_S * 0.005f / 660.0f * rc_data[RC_SLOT_CURRENT].rc.rocker_l1;
+        const int16_t pitch_stick = rc_data[RC_SLOT_CURRENT].rc.rocker_l1;
+        if (MATH_ABS(pitch_stick) > SENTRY_PITCH_STICK_DEADBAND)
+        {
+            /* 死区外按(杆量-死区)线性积分:越过死区时从 0 速起步,不在阈值边缘跳变。 */
+            const float effort =
+                (float)(pitch_stick - ((pitch_stick > 0) ? SENTRY_PITCH_STICK_DEADBAND
+                                                         : -SENTRY_PITCH_STICK_DEADBAND)) /
+                (660.0f - SENTRY_PITCH_STICK_DEADBAND);
+            gimbal_cmd.pitch += SENTRY_PITCH_STICK_RATE_DEG_S * 0.005f * effort;
+        }
     }
     MOTOR_LIMIT_MIN_MAX(gimbal_cmd.pitch, SENTRY_PITCH_MIN_ANGLE, SENTRY_PITCH_MAX_ANGLE);
 

@@ -10,7 +10,6 @@
 #include "robot_cmd_internal.h"
 #include "remote_control.h"
 #include "ins_task.h"
-#include "ax650_uart1.h"
 #include "general_def.h"
 #include "can_port.h"
 #include "motor_def.h"

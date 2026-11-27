@@ -30,10 +30,20 @@
 #define SENTRY_BIG_YAW_DIRECTION 1.0f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
 #define SENTRY_PITCH_DIRECTION (-1.0f) /* [实测 2026-11-27] 关节与枪口方向相反:上抬时 total_position 减小
                                         * (下限位 -112.2°,上限位 -181.7°);原 +1 是错的 */
-#define SENTRY_PITCH_TORQUE_SIGN (-1.0f)      /* [实测 2026-11-23] 达妙正力矩实际使枪口下压,输出取反 */
+#define SENTRY_PITCH_TORQUE_SIGN (+1.0f)
+/* [推导 2026-11-28,待台架首推确认] 编码器闭环的**稳定性符号只跟电机走,与机构方向无关**:
+ * 同款大 yaw DM4310 已台架验证"MIT 正力矩 → total_position 增大",闭环需 正输出 → 正力矩,
+ * 故取 +1。原 -1 是 11-23 世界俯仰(IMU)闭环时按"正力矩枪口下压"取的反号;11-26 迁移改成
+ * 编码器闭环后没有重新推导,保留 -1 等于正反馈:任何一点杆量都会被放大到冲限位
+ * (用户现象"动一下摇杆直接上抬到限位")。台架若首推即加速离开目标:急停,写
+ * sentry_rt_pitch_torque_sign = -1 并回头改这里。 */
 #define SENTRY_SMALL_YAW_DIRECTION (+1.0f)    /* [待实测] GM6020 正输出 → 相对角正方向 */
 #define SENTRY_BIG_YAW_TRANSMISSION_RATIO 1.0f /* [实测 2026-11-27] 复核:est_wz 低估 ~25%,实际电机/关节 192/188≈1.02 */
-#define SENTRY_PITCH_TRANSMISSION_RATIO 1.0f   /* [待实测] 输出轴/电机轴 */
+#define SENTRY_PITCH_TRANSMISSION_RATIO 1.0f
+/* [实测 2026-11-27] 传动比 R = 电机轴角度 / 枪管俯仰角(与大 yaw 同口径)。手推硬限位
+ * -112.2°~-181.7° 共 69.5°,对应枪管 下压 35.7°~上抬 33.8° 共 69.5° → 1:1。
+ * 摇杆命令、软限位、爬升率都是枪管度,固件按 /R 换算到电机轴;台架量法:断电手推枪管
+ * 10°(手机水平仪),R = Δsentry_pitch_position_rad(换算成度) / 10;运行期 sentry_rt_pitch_ratio 可试。 */
 #define SENTRY_BIG_YAW_ZERO_RAD SENTRY_BIG_YAW_FRONT_ALIGN_RAD
 #define SENTRY_PITCH_ZERO_RAD (-2.58163f)     /* [实测 2026-11-27] 枪管水平时 total_position,rad
                                                * (-147.917°;11-23 的 -1.935 已被拆装改变) */
@@ -57,6 +67,11 @@
 #define SENTRY_BIG_YAW_SPEED_MAXOUT SENTRY_BIG_YAW_TORQUE_NM
 #define SENTRY_BIG_YAW_OUTPUT_LPF_RC SENTRY_BIG_YAW_TORQUE_LPF_RC_S /* 兼容参数名，s */
 
+#define SENTRY_BIG_YAW_FRICTION_FF_NM 0.0f /* [配置 2026-11-28] 小陀螺摩擦前馈,N·m;0=关(默认)。
+        * 按关节速度软符号反向注入,抵消同步带/轴承拖拽:稳态负载实测 3.2~3.4,
+        * PI 从零积分起步要 ~9s 填满(进入拖拽 81°/9s)。台架用 sentry_rt_big_yaw_fric_ff_nm 从 2.0 起调 */
+#define SENTRY_BIG_YAW_FRICTION_FF_RAMP_RAD_S 1.0f /* [理论] 软符号斜坡宽度,rad/s;|关节速度|达此值前馈到全量 */
+
 /* ---------------- 小 yaw(GM6020,相对精瞄) ---------------- */
 
 #define SENTRY_SMALL_YAW_ENABLE 1u /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
@@ -77,26 +92,28 @@
 
 #define SENTRY_PITCH_MAX_ANGLE SENTRY_PITCH_MAX_DEG
 #define SENTRY_PITCH_MIN_ANGLE SENTRY_PITCH_MIN_DEG
-#define SENTRY_PITCH_ZERO_AT_BOOT 0u
-/* [配置 2026-11-27] 0=用固定零位 SENTRY_PITCH_ZERO_RAD(水平),不再依赖上电姿态。
- * 原 1=首个反馈锁存为 0°,但上电在下限位时会把“下限位”当水平,世界 pitch 整体偏 35.7°。 */
-#define SENTRY_PITCH_MIN_DEG (-31.8f)
-#define SENTRY_PITCH_MAX_DEG (+33.7f)
-/* [实测 2026-11-27] 相对水平零位的关节软限位(方向 -1,关节负=上抬):
- * min -31.8° = 物理上抬 31.8°(上限位 33.8°内缩 2°);
- * max +33.7° = 物理下压 33.7°(下限位 35.7°内缩 2°)。 */
+#define SENTRY_PITCH_ZERO_AT_BOOT 1u
+/* [用户要求 2026-11-28] 1=上电校准 pitch:首个有效反馈锁定为 0 位,软限位从上电位置起算。
+ * 上电前把枪管放到行程中间(水平附近):放在行程端点会有一侧顶硬限位。
+ * 11-27 曾改 0(固定水平零位)是因为"上电在下限位会把下限位当水平",按本条操作要求即可避免。 */
+#define SENTRY_PITCH_MIN_DEG (-15.0f)
+#define SENTRY_PITCH_MAX_DEG 15.0f
+/* [配置 2026-11-28] 相对上电零位的软限位,单位是**枪管俯仰角**(负=下压,正=上抬),
+ * 固件按 SENTRY_PITCH_DIRECTION 换算到电机轴。11-27 手推硬限位:水平位上抬 33.8°/下压 35.7°
+ * (电机轴 69.5° 行程,与枪管 1:1),枪管居中时 ±15° 每侧留 ~18° 余量;
+ * 台架确认后用 sentry_rt_pitch_min/max_deg 放宽再回填。 */
 #define SENTRY_PITCH_LIMIT_MARGIN_DEG 2.0f
 /* [安全] 实测角越过软限位该值立即断力(11-23 事故教训)。 */
 #define SENTRY_PITCH_MAX_TORQUE_NM 1.5f     /* [安全] 连杆已断,行程未复核前限 1.5 N·m */
 #define SENTRY_PITCH_ANGLE_KP 8.0f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
 #define SENTRY_PITCH_ANGLE_DEADBAND 0.5f    /* [待实测] 角度死区,deg */
 #define SENTRY_PITCH_MAX_SPEED_DEG_S 90.0f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
-#define SENTRY_PITCH_ANGLE_IL 30.0f         /* [理论] 角度环积分限幅 */
+#define SENTRY_PITCH_ANGLE_IL 30.0f         /* [理论] 角度环积分限幅(当前控制链未引用:角度环无积分) */
 #define SENTRY_PITCH_SPEED_KP 0.6f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
 #define SENTRY_PITCH_SPEED_KI 0.2f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
-#define SENTRY_PITCH_SPEED_IL 1.0f          /* [待实测] 速度环积分限幅,Nm */
-#define SENTRY_PITCH_SPEED_MAXOUT 10.0f     /* [规格] 速度环输出限幅,Nm */
-#define SENTRY_PITCH_OUTPUT_LPF_RC 0.02f    /* [待实测] 力矩输出低通 RC,s */
+#define SENTRY_PITCH_SPEED_IL 1.0f          /* [待实测] 速度环积分限幅,Nm(当前控制链未引用:生效的是 SENTRY_PITCH_INTEGRAL_NM) */
+#define SENTRY_PITCH_SPEED_MAXOUT 10.0f     /* [规格] 速度环输出限幅,Nm(当前控制链未引用:生效的是 SENTRY_PITCH_TORQUE_NM) */
+#define SENTRY_PITCH_OUTPUT_LPF_RC 0.02f    /* [待实测] 力矩输出低通 RC,s(当前控制链未引用:生效的是 SENTRY_AXIS_OUTPUT_RC_S) */
 
 /* 重力前馈:τ_ff = A·cos(θ − φ) + B,N·m。A/B=0 时完全关闭。 */
 #define SENTRY_PITCH_GRAVITY_A 0.0f         /* [待实测] 重力矩幅值,Nm */
@@ -181,6 +198,10 @@
 
 #define SENTRY_SMALL_YAW_OUTPUT_RC_S 0.005f /* [移植/待实测] RM_shaobin2 */
 
+#define SENTRY_SMALL_YAW_CARRIER_INJ 0.0f /* [配置 2026-11-28] 母体世界角速度注入系数,(deg/s)/(deg/s);0=关(默认)。
+        * 载体(大yaw座)晃动时小yaw反向补偿做枪口世界稳像:大yaw世界环管低频,小yaw直驱补高频。
+        * 仅 IMU 在线时生效;方向不对把 sentry_rt_small_yaw_carrier_inj 取负。台架从 0.3 起调 */
+
 #define SENTRY_SMALL_YAW_CENTER_ECD 27u /* [实测 2026-11-26] 小 yaw 机械中位 ECD */
 
 #define SENTRY_SMALL_YAW_RETURN_DEG_S 60.0f /* [移植/待实测] RM_shaobin2 */
@@ -201,6 +222,9 @@
 
 #define SENTRY_BIG_YAW_TARGET_DEADBAND_DEG 2.0f /* [移植/待实测] RM_shaobin2 */
 
+#define SENTRY_BIG_YAW_REARM_HEALTHY_CYCLES 20u /* [配置 2026-11-28] 重锚锁存自动解除所需连续健康拍数(200Hz 下 100ms)。
+        * 单帧任务超时/反馈掉帧不再永久卸力;硬故障(超温/失联/DM 掉使能)期间 healthy=false 不解除 */
+
 #define SENTRY_PITCH_DEADBAND_DEG 0.3f /* [移植/待实测] RM_shaobin2 */
 
 #define SENTRY_AXIS_OUTPUT_RC_S 0.012f /* [移植/待实测] RM_shaobin2 */
@@ -211,20 +235,30 @@
 
 #define SENTRY_AXIS_FF_LPF 0.3f /* [移植/待实测] RM_shaobin2 */
 
-#define SENTRY_PITCH_TRAVEL_DEG 20.0f /* [移植/待实测] RM_shaobin2 */
+#define SENTRY_PITCH_TRAVEL_DEG 20.0f /* [移植/待实测] RM_shaobin2(当前控制链未引用:限位用 SENTRY_PITCH_MIN/MAX_DEG) */
 
-#define SENTRY_PITCH_RATE_DEG_S 60.0f /* [移植/待实测] RM_shaobin2 */
+#define SENTRY_PITCH_RATE_DEG_S 60.0f /* [移植/待实测] RM_shaobin2,gimbal 内目标爬升限速,deg/s */
 
-#define SENTRY_PITCH_MOUSE_RATE_DEG_S 150.0f /* [移植/待实测] RM_shaobin2 */
+#define SENTRY_PITCH_STICK_RATE_DEG_S 20.0f
+/* [配置 2026-11-28] 遥控左纵杆满量程的 pitch 目标积分速率,deg/s。
+ * 原与上面共用 60:半行程只有 15°,轻碰 0.25 s 就顶到限位;20 → 满杆 1.5 s 走完 ±15°。 */
+
+#define SENTRY_PITCH_STICK_DEADBAND 40
+/* [配置 2026-11-28] 遥控左纵杆死区,原始刻度(满量程 660)。原硬编码 10:
+ * 回中偏置一旦超过 10 就会持续单向积分爬到限位;与底盘 CHASSIS_RC_DEADBAND=30 同量级。 */
+
+#define SENTRY_PITCH_MOUSE_RATE_DEG_S 150.0f /* [移植/待实测] RM_shaobin2(当前控制链未引用:键鼠 pitch 用 config_kbm.h 的 KBM_PITCH_*) */
 
 /* ---------------- 自瞄接入(左中挡 / 键鼠 Shift) ---------------- */
 
 #define SENTRY_AUTO_AIM_ENABLE 1u
 /* [配置] 1=左中挡或键鼠 Shift 进入自瞄;0=左中挡保持普通遥控(旧行为)。 */
-#define SENTRY_AUTO_AIM_PITCH_ENABLE 1u
-/* [配置] 1=自瞄时 pitch 走绝对角(世界 pitch → 关节角);0=保持手动相对角。 */
-#define SENTRY_AUTO_AIM_FIRE_ENABLE 0u
-/* [安全首测] 0=只瞄不打(首测验证跟踪方向/限位);确认无误后改 1u 开放视觉连发。 */
+#define SENTRY_AUTO_AIM_PITCH_ENABLE 0u
+/* [安全 2026-11-28] 0=pitch 恒为手动。自瞄绝对角把"上电零位"当作相对平台 0° 俯仰,而上电零位
+ * 是任意位置,未标定前视觉目标会把 pitch 直接推到软限位;大 yaw 自瞄不受影响。
+ * 标定"上电零位对应的枪管世界 pitch"后再改回 1。 */
+#define SENTRY_AUTO_AIM_FIRE_ENABLE 1u
+/* [配置] 1=自瞄有效且视觉 shoot!=0 时按战术档位连发;0=只瞄不打。 */
 #define SENTRY_AUTO_AIM_HOLD_MS 300.0f
 /* [理论] 目标断帧后保持上一世界目标的时长,ms;超时退回普通回正。 */
 #define SENTRY_AUTO_AIM_BIG_YAW_MAX_SPEED_DEG_S 150.0f

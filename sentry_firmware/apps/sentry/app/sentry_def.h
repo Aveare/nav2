@@ -12,12 +12,12 @@
 #include <stdint.h>
 #include "robot_def.h" /* chassis_ctrl_cmd_t / shoot_ctrl_cmd_t / attitude_t / gimbal_mode_e */
 
-/* cmd → gimbal：pitch为相对解锁角增量，小yaw为独立速率；大yaw由底盘模式选择机械回正/纯速度补偿。
+/* cmd → gimbal：pitch为相对上电零位的枪管俯仰角(上电锁存为 0°,正=上抬,夹在 MIN/MAX_ANGLE;gimbal 按 DIR/传动比换算到电机轴)，小yaw为独立速率；大yaw由底盘模式选择机械回正/纯速度补偿。
  * AUTO_AIM 下 big_yaw 改为世界 yaw 目标、pitch_abs 改为世界 pitch 目标,aim_valid=1。 */
 typedef struct
 {
     float big_yaw;       // AUTO_AIM: 世界 yaw 目标,deg; 手动: 兼容字段
-    float pitch;         // 解锁点相对电机轴角指令,deg
+    float pitch;         // 手动: 相对上电零位的枪管俯仰角指令,deg(正=上抬,0 = 保持上电位置)
     float pitch_abs;     // AUTO_AIM: 枪管世界 pitch 目标,deg
     float small_yaw_rate_deg_s; // independent relative-yaw command, deg/s
     float small_yaw_rel; // 预留:操作手直接给相对精瞄目标,当前恒 0
@@ -42,7 +42,7 @@ typedef struct
     uint8_t pitch_online;         // 1=pitch DM 反馈新鲜
     uint8_t small_yaw_online;     // 1=小 yaw 反馈在线
     uint64_t big_yaw_sample_us;   // 大 yaw CAN 反馈进入 MCU 的采样时间,us
-    uint64_t small_yaw_sample_us; // 小 yaw 反馈快照时间,MCU us
+    uint64_t small_yaw_sample_us; // 小 yaw CAN 反馈进入 MCU 的采样时间,us
     uint64_t pitch_sample_us;     // pitch CAN 反馈进入 MCU 的采样时间,us
 } sentry_gimbal_feed_t;
 

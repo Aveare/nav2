@@ -59,10 +59,8 @@ uint8_t usb_try_transmit(uint8_t *buffer, uint16_t length)
         else if (buffer[3] == SENTRY_NAV_PROTOCOL_MSG_SYNC_RESPONSE)
             ++seen_sync_response;
     }
-    else if ((length == AX650_POSE_FRAME_SIZE && buffer[0] == 0xA5u &&
-              buffer[5] == 0x21u && buffer[6] == 0x10u) ||
-             (length == AX650_FULL_POSE_FRAME_SIZE && buffer[0] == 0xA5u &&
-              buffer[5] == 0x22u && buffer[6] == 0x10u))
+    else if (length == AX650_FULL_POSE_FRAME_SIZE && buffer[0] == 0xA5u &&
+             buffer[5] == 0x22u && buffer[6] == 0x10u)
     {
         ++seen_pose;
     }
@@ -147,7 +145,7 @@ static void test_vision_link_unit(void)
     vision_link_feed(frame, bad_length, fake_ms + 1u);
     vision_link_get_state(&state);
     assert(state.dropped == 1u && state.command_count == 1u);
-    fake_ms += AX650_COMMAND_TIMEOUT_MS + 1u;
+    fake_ms += SENTRY_NUC_RMCV_COMMAND_TIMEOUT_MS + 1u;
     vision_link_get_state(&state);
     assert(state.valid == 0u);
 
@@ -157,8 +155,9 @@ static void test_vision_link_unit(void)
     const size_t pose_length = vision_link_build_pose(frame, sizeof(frame), fake_ms);
     assert(pose_length == AX650_POSE_FRAME_SIZE);
     assert(frame[0] == 0xA5u && frame[5] == 0x21u && frame[6] == 0x10u);
-    assert(frame[23] == AX650_TX_MODE && frame[28] == AX650_TX_ROBOT_ID);
-    fake_ms += AX650_POSE_PERIOD_MS;
+    assert(frame[23] == SENTRY_NUC_RMCV_TX_MODE &&
+           frame[28] == SENTRY_NUC_RMCV_TX_ROBOT_ID);
+    fake_ms += SENTRY_NUC_RMCV_POSE_PERIOD_MS;
     assert(vision_link_build_pose(frame, sizeof(frame), fake_ms) == 0u);
     ++ekf_ins.UpdateCount;
     assert(vision_link_build_pose(frame, sizeof(frame), fake_ms) == AX650_POSE_FRAME_SIZE);
@@ -170,8 +169,14 @@ static void test_full_usb_pipeline(void)
     autonomy_init();
     memset(&fake_gimbal_feed, 0, sizeof(fake_gimbal_feed));
     fake_gimbal_feed.big_yaw_rel_deg = 30.0f;
+    fake_gimbal_feed.small_yaw_rel_deg = -5.0f;
+    fake_gimbal_feed.pitch_deg = 8.0f;
     fake_gimbal_feed.big_yaw_sample_us = 1234000u;
+    fake_gimbal_feed.small_yaw_sample_us = 1235000u;
+    fake_gimbal_feed.pitch_sample_us = 1236000u;
     fake_gimbal_feed.big_yaw_online = 1u;
+    fake_gimbal_feed.small_yaw_online = 1u;
+    fake_gimbal_feed.pitch_online = 1u;
     memset(&ekf_ins, 0, sizeof(ekf_ins));
     ekf_ins.Initialized = 1u;
     ekf_ins.UpdateCount = 1u;

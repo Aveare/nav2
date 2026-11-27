@@ -22,7 +22,7 @@ void cmd_init(void);
 void cmd_task(void);
 
 /** @brief 最近一帧有效 0x0503 的原始 yaw 目标,deg */
-float cmd_get_ax650_raw_yaw(void);
+float cmd_get_nuc_raw_yaw(void);
 
 /** @brief 当前战术射速档位(0=ECO 1=NORMAL 2=BURST) */
 uint8_t cmd_get_fire_tier(void);

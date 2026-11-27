@@ -18,7 +18,6 @@ robot_status_e robot_state; // 机器人整体工作状态
 // module
 #include "remote_control.h"
 #include "ins_task.h"
-#include "ax650_uart1.h"
 #include "msg.h"
 #include "general_def.h"
 #include "can_port.h"
@@ -48,7 +47,7 @@ sentry_shoot_feed_t shoot_fb_recv;
 
 remote_rc_ctrl_t *rc_data;
 
-float ax650_raw_yaw_target;
+float nuc_raw_yaw_target;
 uint8_t yaw_recentering = 0;
 uint16_t recenter_cnt = 0;
 kbm_input_source_e input_source = INPUT_RC;
@@ -84,9 +83,9 @@ float cmd_fire_tier_rate(void)
     }
 }
 
-float cmd_get_ax650_raw_yaw(void)
+float cmd_get_nuc_raw_yaw(void)
 {
-    return ax650_raw_yaw_target;
+    return nuc_raw_yaw_target;
 }
 
 uint8_t cmd_get_fire_tier(void)
@@ -184,8 +183,6 @@ void cmd_task(void)
 
     /* 5. 手动回中:键鼠 F 或小陀螺切回跟随触发;解锁不再触发(DEV-20261126-05) */
 #if SENTRY_GIMBAL_RECENTER_ENABLE
-    const uint8_t auto_aim_active =
-        AX650_UART1_ENABLE && REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left);
     if (auto_aim_active)
     {
         yaw_recentering = 0;
