@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=05 启动test地图定位与RViz
+Comment=启动 test 地图定位和用于选择位置的 RViz
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/05_启动test地图定位与RViz.sh
+Icon=applications-engineering
+Terminal=false
+Categories=Utility;
+StartupNotify=false

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=02 启动实车扫描建图
+Comment=启动 MID360S、动态大 yaw、SLAM Toolbox 和 RViz
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/02_启动实车扫描建图.sh
+Icon=applications-engineering
+Terminal=false
+Categories=Utility;
+StartupNotify=false

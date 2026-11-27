@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=07 显示test中心点
+Comment=在 RViz 显示中心点箭头和 CENTER 标签
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/07_显示test中心点.sh
+Icon=view-refresh
+Terminal=false
+Categories=Utility;
+StartupNotify=false

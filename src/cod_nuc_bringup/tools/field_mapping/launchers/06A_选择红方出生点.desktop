@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=06A 选择红方出生点
+Comment=在 RViz 使用 Publish Point 记录红方出生位置
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/06A_RViz点击并保存红方出生点.sh
+Icon=mark-location
+Terminal=false
+Categories=Utility;
+StartupNotify=false

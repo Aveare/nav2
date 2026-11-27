@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=01 建图前安全检查
+Comment=检查雷达、串口、ROS 2 环境和冲突进程
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/01_建图前安全检查.sh
+Icon=system-search
+Terminal=false
+Categories=Utility;
+StartupNotify=false

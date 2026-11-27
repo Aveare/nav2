@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=08 停止定位和中心点显示
+Comment=停止本套脚本启动的定位、中心点显示、雷达、串口桥和 RViz
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/08_停止定位和中心点显示.sh
+Icon=process-stop
+Terminal=false
+Categories=Utility;
+StartupNotify=false

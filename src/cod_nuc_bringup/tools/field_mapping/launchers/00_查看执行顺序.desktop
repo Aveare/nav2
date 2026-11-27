@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=00 查看执行顺序
+Comment=查看现场建图、保存地图和记录出生点的执行顺序
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/00_查看执行顺序.sh
+Icon=help-browser
+Terminal=false
+Categories=Utility;
+StartupNotify=false

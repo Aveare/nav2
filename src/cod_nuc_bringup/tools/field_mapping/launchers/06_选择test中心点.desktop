@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=06 选择test中心点（可选）
+Comment=在 RViz 使用 Publish Point 记录可选场地中心点
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/06_RViz点击并保存test中心点.sh
+Icon=mark-location
+Terminal=false
+Categories=Utility;
+StartupNotify=false

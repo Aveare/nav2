@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=09 核对地图和出生点
+Comment=核对 test 地图、红方出生点和蓝方出生点文件
+Exec=/usr/bin/bash /home/rm/Desktop/建图与中心点/.scripts/09_核对test地图和中心点文件.sh
+Icon=dialog-information
+Terminal=false
+Categories=Utility;
+StartupNotify=false
