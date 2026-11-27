@@ -6,6 +6,7 @@ import serial
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
@@ -214,10 +215,18 @@ def main():
     node = SentryUSBBridge()
     try:
         rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except Exception:
+        # SIGINT/SIGTERM can invalidate the ROS context while a timer callback is
+        # publishing. Only suppress that shutdown race; preserve live-context faults.
+        if rclpy.ok():
+            raise
     finally:
         node.close()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
