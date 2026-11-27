@@ -5,15 +5,7 @@
  */
 #pragma once
 #include <stdint.h>
-
-typedef struct
-{
-    float yaw, pitch;
-    float yaw_speed, pitch_speed;
-    float yaw_acc, pitch_acc;
-    float distance;
-    uint8_t shoot, target_id;
-} ax650_command_t;
+#include "ax650_pose.h"
 
 typedef struct
 {

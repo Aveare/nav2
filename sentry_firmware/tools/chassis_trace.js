@@ -12,9 +12,15 @@
  *   全程不暂停核心(与 tools/pitch_calib.js 的 sweep 同一机制)。
  *
  * 用法:
- *   node tools/chassis_trace.js --secs 12 --interval 40
+ *   node tools/chassis_trace.js --robot sentry --secs 12 --interval 40
  *   node tools/chassis_trace.js --secs 12 --keep      # 不做平台段摘要,只存 CSV
  *   node tools/chassis_trace.js --out build/chassis_s1.csv
+ *
+ * 采集闸门(2026-11-27 起,见 tools/lib/capture_guard.js):
+ *   - ELF 钉到 firmware/<robot>.elf,不再依赖会被别的兵种构建覆盖的 current.elf;
+ *   - 读一次变量核对 flashedSha256 == elfSha256,不一致默认拒绝(车上固件不同源时
+ *     变量地址可能漂移);确认风险可加 --allow-mismatch 强制采,身份写入终端输出;
+ *   - build/.capture.lock 互斥:RTT/其它采集正在跑时直接退出,不抢探针。
  *
  * 输出:
  *   build/chassis_trace.csv(默认) ——
@@ -34,11 +40,12 @@ const path = require('path');
 const WORKSPACE = path.resolve(__dirname, '..');
 // 与 tools/pitch_calib.js 同一条桥接通道
 const { call } = require(path.join(__dirname, '..', '.agents', 'skills', '_emberprobe', 'agent-client.js'));
+const guard = require(path.join(__dirname, 'lib', 'capture_guard.js'));
 
 /* 400 = 尽量一次取完整个窗口:50 点/块会在块间留 0.3~0.5s 空洞,
  * 而起步/松杆都发生在那 0.2s 里(2026-11-21 踩过)。通道多时偶尔整套失败,失败会重试。 */
 const CHUNK_POINTS = 400;
-const RETRY_PER_CHUNK = 8;     // 实测单块成功率约 60%(失败为 failed to read memory),故重试给足
+const RETRY_PER_CHUNK = 3;     // 只重试偶发 failed to read memory;硬错误一次就退出
 const RETRY_DELAY_MS = 500;
 
 const VARS = [
@@ -156,6 +163,15 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** 闸门拒绝:给一行原因 + 一行补救,退出码 2(不要静默继续采错数据) */
+function fail(message, hint) {
+  const payload = { ok: false, code: 'CAPTURE_GUARD', message, hint: hint || null };
+  console.log(JSON.stringify(payload));
+  process.stderr.write(`采集拒绝:${message}\n`);
+  if (hint) process.stderr.write(`补救:${hint}\n`);
+  process.exit(2);
+}
+
 function parseArgs(argv) {
   const out = {
     secs: 12,
@@ -163,16 +179,23 @@ function parseArgs(argv) {
     out: path.join('build', 'chassis_trace.csv'),
     keep: false,
     json: false,
+    robot: null,
+    allowMismatch: false,
   };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--secs') out.secs = Number(argv[++i]);
     else if (a === '--interval') out.interval = Number(argv[++i]);
     else if (a === '--out') out.out = argv[++i];
+    else if (a === '--robot') out.robot = argv[++i];
+    else if (a === '--allow-mismatch') out.allowMismatch = true;
     else if (a === '--keep') out.keep = true;
     else if (a === '--json') out.json = true;
     else if (a === '--help' || a === '-h') {
-      console.log('用法: node tools/chassis_trace.js --secs 12 --interval 40 [--out 路径] [--keep] [--json]');
+      console.log(
+        '用法: node tools/chassis_trace.js --robot <infantry|sentry|heavy> --secs 12 --interval 40 ' +
+          '[--out 路径] [--keep] [--json] [--allow-mismatch]'
+      );
       process.exit(0);
     }
   }
@@ -204,10 +227,11 @@ function pickValues(entry, names) {
   return result;
 }
 
-/** 分块采样:每块 CHUNK_POINTS 点,块内失败重试,块间失败不中止 */
+/** 分块采样:每块 CHUNK_POINTS 点;只有偶发内存读失败才重试,硬错误立刻中止 */
 async function sampleSeries(names, totalPoints, intervalMs) {
   const samples = [];
   let failedChunks = 0;
+  let abortError = null;
   let cursor = 0;
   while (cursor < totalPoints) {
     const count = Math.min(CHUNK_POINTS, totalPoints - cursor);
@@ -228,16 +252,21 @@ async function sampleSeries(names, totalPoints, intervalMs) {
         if (!ok) lastErr = new Error('该块返回 0 点');
       } catch (err) {
         lastErr = err;
+        if (!guard.isTransient(err)) break; // 探针/桥/会话类硬错误:重试只会把失败拖成几分钟
         await sleep(RETRY_DELAY_MS);
       }
     }
     if (!ok) {
       failedChunks += 1;
       process.stderr.write(`[块 ${cursor}~${cursor + count - 1}] 失败:${lastErr && lastErr.message}\n`);
+      if (!guard.isTransient(lastErr)) {
+        abortError = lastErr;
+        break;
+      }
     }
     cursor += count;
   }
-  return { samples, failedChunks };
+  return { samples, failedChunks, abortError };
 }
 
 /** 找连续平台段:返回 {max, mean, ms, t0, t1} */
@@ -271,19 +300,80 @@ function plateau(samples, key, threshold) {
 async function main() {
   const args = parseArgs(process.argv);
 
-  // 预热:冷启动第一条 RPC 常报 failed to read memory
+  /* ---- 闸门 1:兵种 / ELF 身份(不依赖会被别的兵种构建覆盖的 current.elf) ---- */
+  const robot = args.robot || guard.currentProfile(WORKSPACE);
+  if (!robot) {
+    fail('无法确定兵种:firmware/current.txt 缺失或没有 PROFILE', '用 --robot <infantry|sentry|heavy> 指定');
+  }
+  const elf = guard.checkRobotElf(WORKSPACE, robot);
+  if (!elf.ok) fail(`ELF 身份不对:${elf.problems.join('; ')}`, elf.remedy);
+  if (elf.warnings && elf.warnings.length) {
+    for (const w of elf.warnings) process.stderr.write(`警告:${w}\n`);
+  }
+
+  /* ---- 闸门 2:采集互斥(同一探针不允许两个采集进程) ---- */
+  const lock = guard.acquireLock(WORKSPACE, 'chassis_trace');
+  if (!lock.ok) {
+    fail(
+      `已有采集进程在跑:${lock.owner.tool}(pid ${lock.owner.pid}, ${lock.owner.at})`,
+      '等它结束或先关掉它;确认进程已死可删 build/.capture.lock'
+    );
+  }
+  process.on('exit', () => guard.releaseLock(WORKSPACE));
+
+  /* ---- 闸门 3:钉 ELF + 核对车上固件(不同源时地址可能漂移) ---- */
   try {
-    await call(WORKSPACE, 'variables.read', { variables: [{ name: 'chassis_last_ms' }] }, 20000);
+    const pin = await guard.pinElf(call, WORKSPACE, elf.elfPath);
+    process.stderr.write(
+      `采集身份:${robot} / firmware/${robot}.elf / SHA ${String(elf.elfSha).slice(0, 8)}` +
+        (pin.changed ? `(ELF 原指向 ${pin.from || '?'})` : '') +
+        '\n'
+    );
+    /* 冷启动第一条 RPC 常报 OPENOCD_START_FAILED(实测 2026-11-27),给 3 次重试;
+     * 硬错误(目标不匹配等)立即放弃。 */
+    let pre = null;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 3 && !pre; attempt += 1) {
+      try {
+        pre = await call(WORKSPACE, 'variables.read', { variables: [{ name: 'est_wz' }] }, 20000);
+      } catch (err) {
+        lastErr = err;
+        if (!guard.isTransient(err) || attempt === 3) break;
+        process.stderr.write(`握手失败,重试 ${attempt}/3:${err.message}\n`);
+        await sleep(1000);
+      }
+    }
+    if (!pre) throw lastErr || new Error('握手无返回');
+    const cons = guard.firmwareConsistency(pre);
+    if (!cons.ok) {
+      const msg =
+        `车上固件与磁盘 ELF 不同源: flashed ${String(cons.flashedSha256).slice(0, 8)}` +
+        ` != elf ${String(cons.elfSha256).slice(0, 8)}`;
+      if (!args.allowMismatch) {
+        fail(msg + '(变量地址可能已漂移)', `先 ${elf.remedy} 并烧录;确认风险可加 --allow-mismatch`);
+      }
+      process.stderr.write(`警告:${msg};--allow-mismatch 强制采集,数据可信度自负\n`);
+    }
   } catch (err) {
-    process.stderr.write(`预热失败(继续尝试采样):${err.message}\n`);
+    fail(
+      `采集前握手失败:${err.message}`,
+      'OPENOCD_START_FAILED 时先关掉其它占用探针的会话(Ozone/RTT/采样),再重试'
+    );
   }
 
   const totalPoints = Math.max(2, Math.min(1000, Math.round((args.secs * 1000) / args.interval)));
   process.stderr.write(`采样 ${totalPoints} 点 @${args.interval}ms ≈ ${(totalPoints * args.interval) / 1000}s(分 ${Math.ceil(totalPoints / CHUNK_POINTS)} 块)\n`);
 
-  const { samples, failedChunks } = await sampleSeries(VARS, totalPoints, args.interval);
+  const { samples, failedChunks, abortError } = await sampleSeries(VARS, totalPoints, args.interval);
   if (samples.length === 0) {
-    console.log(JSON.stringify({ ok: false, code: 'NO_SAMPLES', message: '一个点都没采到' }));
+    console.log(
+      JSON.stringify({
+        ok: false,
+        code: 'NO_SAMPLES',
+        message: '一个点都没采到',
+        reason: abortError && abortError.message,
+      })
+    );
     process.exit(1);
   }
 
@@ -314,6 +404,8 @@ async function main() {
     points: samples.length,
     requested: totalPoints,
     failedChunks,
+    aborted: abortError ? abortError.message : null,
+    identity: { robot, elf: elf.elfPath, elfSha256: elf.elfSha },
     durationMs: samples[samples.length - 1].timestamp - t0,
     out: outPath,
     plateau: args.keep ? undefined : summary,
@@ -335,6 +427,10 @@ async function main() {
       }
     }
     console.log(`波形: ${outPath}`);
+  }
+  if (abortError) {
+    process.stderr.write(`采集中止:${abortError.message}(已保存 ${samples.length} 点)\n`);
+    process.exit(3);
   }
   process.exit(0);
 }

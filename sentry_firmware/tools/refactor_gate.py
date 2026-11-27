@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """重构闸门:证明"零行为变化"的可执行检查。
 
-配套方案:.Doc/plan/重构总方案.md §2。本脚本只读(除自检产物写入 build/ 下),不改任何源码。
+配套方案:.Doc/history/archive/plan/重构总方案.md §2。本脚本只读(除自检产物写入 build/ 下),不改任何源码。
 
 用法(在工程根执行):
     python tools/refactor_gate.py save-baseline      # 在改动前采集基线
@@ -14,9 +14,11 @@
     G1 宏集合逐字节一致(gcc -E -dM,排序后 diff)
     G2 ARM 全量编译(ninja -C build,0 error / 第一方 0 warning)
     G3 主机测试(tests\run_*.ps1 全 PASS)
-    G4 基线审计计数(与基线一致,或按 --expect 声明)
     G5 逐符号机器码尺寸(nm -S 多重集完全一致)
     G6 纯搬家行多重集(git diff -U0,仅对指定 ref)
+    R1 兵种范围(tools/check_robot_scope.py;跨兵种 FAIL、兵种分支改共享层 WARN)
+
+    G4 基线审计已于 2026-11-26 随"脱离上游"移除(原 audit_baseline 依赖上游快照)。
 
 退出码:0 全部通过;1 有 FAIL。
 """
@@ -57,7 +59,6 @@ def _resolve_toolchain():
 
 
 GCC, NM, SIZE = _resolve_toolchain()
-AUDIT = ".agents/skills/rm-electrical-dev/scripts/audit_baseline.py"
 CONFIG_H = "config/infantry_2026/config.h"
 
 # 不参与链接校验:历史记录(只追加)、上游快照(必须逐字节等同)、代理工作笔记、工具自身。
@@ -129,28 +130,6 @@ def parse_size(text):
         return {"text": int(parts[0]), "data": int(parts[1]), "bss": int(parts[2])}
     except (IndexError, ValueError):
         return None
-
-
-AUDIT_PAT = {
-    "unchanged": re.compile(r"Unchanged:\s*(\d+)\s*/\s*(\d+)"),
-    "changed": re.compile(r"Changed\s*:\s*(\d+)"),
-    "missing": re.compile(r"Missing\s*:\s*(\d+)"),
-    "added": re.compile(r"Added\s*:\s*(\d+)"),
-    "redflags": re.compile(r"RedFlags\s*:\s*(\d+)"),
-}
-
-
-def run_audit():
-    ok, out = run([sys.executable, AUDIT, "--project", "."])
-    counts = {}
-    for key, pat in AUDIT_PAT.items():
-        m = pat.search(out)
-        if m:
-            counts[key] = int(m.group(1))
-    if "unchanged" in counts:
-        m = AUDIT_PAT["unchanged"].search(out)
-        counts["baseline_total"] = int(m.group(2))
-    return ok, out, counts
 
 
 def run_build():
@@ -330,6 +309,31 @@ def check_mode_paths(args, fails, notes):
             fails.append(("G6 搬家行多重集", f"--mode 仅支持 move/rewrite,得到 {args.mode!r}"))
 
 
+# ---------------- 兵种范围 ----------------
+
+def check_robot_scope(fails, notes):
+    """R1 兵种范围守卫(.Doc/spec/兵种分支协作规范.md §9)。
+
+    跨兵种改动 FAIL;兵种分支上的共享层改动只 WARN(热修须回流 main),
+    因此不会改变既有 G1~G6 的通过条件;脚本缺失/环境不可用时 SKIP。
+    """
+    tool = ROOT / "tools" / "check_robot_scope.py"
+    if not tool.exists():
+        notes.append(("R1 兵种范围", "SKIP", "tools/check_robot_scope.py 不存在"))
+        return
+    ok, out = run([sys.executable, str(tool), "--gate"], timeout=120)
+    line = next((ln.strip() for ln in reversed(out.strip().splitlines())
+                 if ln.strip().startswith("[")), "")
+    if not line:
+        notes.append(("R1 兵种范围", "SKIP", f"无输出(rc={ok}): {out[-200:]}"))
+    elif "[FAIL]" in line:
+        fails.append(("R1 兵种范围", line))
+    elif "[WARN]" in line:
+        notes.append(("R1 兵种范围", "WARN", line))
+    else:
+        notes.append(("R1 兵种范围", "PASS", line))
+
+
 # ---------------- 基线 ----------------
 
 def cmd_save(argv):
@@ -358,17 +362,11 @@ def cmd_save(argv):
 
     (BASE / "size.txt").write_text(dump_size() or "", encoding="utf-8")
 
-    _, audit_out, counts = run_audit()
-    (BASE / "audit.txt").write_text(audit_out, encoding="utf-8")
-    (BASE / "audit.json").write_text(json.dumps(counts, ensure_ascii=False), encoding="utf-8")
-
     tests = run_tests()
     (BASE / "tests.json").write_text(json.dumps(tests, ensure_ascii=False, indent=1), encoding="utf-8")
 
     print(f"基线已写入 {BASE}")
-    print(f"  宏 {len(macros.splitlines())} 条 / 符号 {sum(syms.values())} 个 / "
-          f"审计 {counts.get('unchanged')}/{counts.get('baseline_total')} 未变、"
-          f"{counts.get('changed')} 改、{counts.get('added')} 增")
+    print(f"  宏 {len(macros.splitlines())} 条 / 符号 {sum(syms.values())} 个")
     return 0
 
 
@@ -381,17 +379,6 @@ def cmd_check(argv):
     if not base_macros.exists():
         print("FAIL: 没有基线,先跑 save-baseline")
         return 1
-    expect = None
-    if args.expect_audit:
-        expect = {}
-        for part in args.expect_audit.split(","):
-            k, _, v = part.partition("=")
-            expect[k.strip()] = int(v)
-        expect.setdefault("baseline_total", 460)
-        # 未声明的键沿用基线 audit.json(部分声明语义;B1 added=14 而其余不变)
-        if (BASE / "audit.json").exists():
-            for k, v in json.loads((BASE / "audit.json").read_text(encoding="utf-8")).items():
-                expect.setdefault(k, v)
 
     # G1 宏
     cur, raw = dump_macros()
@@ -483,19 +470,7 @@ def cmd_check(argv):
     check_g2_asserts(fails, notes)
     check_budget(args, fails, notes)
     check_mode_paths(args, fails, notes)
-
-    # G4 审计
-    _, audit_out, counts = run_audit()
-    old_counts = json.loads((BASE / "audit.json").read_text(encoding="utf-8"))
-    want = expect or old_counts
-    if counts == want:
-        notes.append(("G4 基线审计", "PASS",
-                      f"{counts.get('unchanged')}/{counts.get('baseline_total')} 未变 / "
-                      f"{counts.get('changed')} 改 / {counts.get('added')} 增 / "
-                      f"{counts.get('redflags')} 红旗"))
-    else:
-        fails.append(("G4 基线审计", f"计数变化 期望 {want} → 当前 {counts}"
-                                     f"(该批若声明了预期新增/移动文件,用 --expect-audit 声明)"))
+    check_robot_scope(fails, notes)
 
     # G3 主机测试
     if not args.no_tests:
@@ -609,8 +584,6 @@ def main():
         p.add_argument("--no-tests", action="store_true")
         p.add_argument("--since", default=None, help="G6 的 git ref")
         p.add_argument("--max-unmatched", type=int, default=0)
-        p.add_argument("--expect-audit", default=None,
-                       help="声明本批预期审计计数,如 unchanged=303,changed=100,missing=57,added=38,redflags=2")
         p.add_argument("--allow-linkage", action="store_true",
                        help="拆分类批次:允许符号 static→extern 及随之的尺寸微变(逐符号打印,超 0.2% 需人工复核)")
         p.add_argument("--budget", type=float, default=None,

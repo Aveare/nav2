@@ -4,7 +4,7 @@
  *
  * 用途:
  *   yaw 轴的基线检查与整定取证 —— 静态残差 / 静息抖动 / 到位过冲 / 松杆回弹 /
- *   恒速段的稳态电流。对应 `.Doc/detail/yaw轴深化改造计划.md` 的 B1/B2 判据与 P2 摩擦标定。
+ *   恒速段的稳态电流。对应 `.Doc/robots/infantry/design/yaw轴深化改造计划.md` 的 B1/B2 判据与 P2 摩擦标定。
  *
  * 为什么不用 tools/sample_scalars.js:
  *   那条路每个点都要 variables.read 一次,而读变量必须暂停核心 → 云台任务停发 CAN,

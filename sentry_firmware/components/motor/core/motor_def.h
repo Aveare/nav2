@@ -188,6 +188,8 @@ typedef struct
     dm_motor_mit_controller_init_t controller_param_init_config; // MIT参数
     motor_reverse_flag_e motor_reverse_flag;            // 是否反转
     can_init_config_t can_init_config;                  // CAN实例
+    float torque_min; // optional instance torque map, zero selects legacy default
+    float torque_max;
 } dm_motor_mit_init_config_t;                                    // MIT模式初始化结构体
 
 #endif // !MOTOR_DEF_H

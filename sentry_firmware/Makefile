@@ -126,14 +126,12 @@ components/control/quaternion_ekf.c \
 components/crc/crc8.c \
 components/crc/crc16.c \
 components/math/user_lib.c \
-components/navigation/nav_protocol.c \
 components/calib/calib.c \
 components/imu/bmi088_driver.c \
 components/imu/bmi088_middleware.c \
 components/imu/ins_task.c \
 components/ax650/ax650_pose.c \
 components/ax650/ax650_uart1.c \
-components/ax650/ax650_usb.c \
 components/motor/dji/dji_motor.c \
 components/motor/ht/ht_motor.c \
 components/motor/dm/dm_motor.c \
@@ -151,6 +149,7 @@ components/remote/remote_control.c \
 components/super_cap/super_cap.c \
 components/can_comm/can_comm.c \
 components/daemon/daemon.c \
+components/navigation/nav_protocol.c \
 framework/diag/telemetry.c \
 ports/stm32f4/telemetry_arena.c \
 components/alarm/buzzer.c \
@@ -266,7 +265,6 @@ C_INCLUDES =  \
 -Icomponents/control \
 -Icomponents/crc \
 -Icomponents/math \
--Icomponents/navigation \
 -Icomponents/alarm \
 -Icomponents/imu \
 -Icomponents/ax650 \
@@ -277,6 +275,7 @@ C_INCLUDES =  \
 -Icomponents/super_cap \
 -Icomponents/can_comm \
 -Icomponents/daemon \
+-Icomponents/navigation \
 -Icomponents/calib \
 -Iframework \
 -Iframework/diag \

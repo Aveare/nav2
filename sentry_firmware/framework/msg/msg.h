@@ -3,7 +3,7 @@
  * @brief   消息接口:发布/订阅/接收
  * @layer   FRAMEWORK
  * @author  小猫大王
-* @note    与 message_center(旧)的语义对照:.Doc/gate/msg-semantic-map.md
+* @note    与 message_center(旧)的语义对照:.Doc/history/archive/gate/msg-semantic-map.md
 *          (T04 验收 = 对照表逐项 PASS)。关键继承语义:
 *          - 每订阅者深度 = 1:**只保最新一帧**,新帧直接覆盖未取走的旧帧;
 *            适合状态型数据(指令/反馈),事件型需求是"深度>1"新能力(B3+ 再议,

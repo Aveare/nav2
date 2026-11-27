@@ -12,14 +12,14 @@
 | check_macro_golden.py | G1b 宏守恒探针(-E -dM 快照;删除/改值 FAIL) |
 | check_abi_golden.py | T11 协议结构 sizeof/offsetof 快照 |
 | check_comment_style.py | 注释风格(占位符/TODO/禁用标签) |
+| check_robot_scope.py | R1 兵种范围(本地提交前 + refactor_gate;CI 工作区干净无判定意义,不入 CI):兵种分支改其他兵种 = FAIL,改共享层 = WARN |
 | check_build_parity.py | Makefile 与 CMake 的 -D 集合 parity |
 | check_symbol_contract.py | 调试工具引用的固件符号仍存在 |
 | check_source_lists.py | Makefile 源清单与磁盘一致 |
 | check_sections.py | RAM/CCM 占用与段属性 |
-| check_plan.py | 升级总方案自检(文档断言) |
-| g4_baseline.py | G4 基线审计(manifest 生成/比对) |
+| g4_baseline.py | 红旗基线(git 树快照/比对;权威机制) |
 | site_ledger.py | while(1)/malloc 站点台账生成 |
-| check_tags.py / refactor_gate.py | 记录回退链 / 重构闸门聚合 |
+| check_tags.py / refactor_gate.py | 批次 DEV 条目 / 重构闸门聚合(含 check-links、R1) |
 
 ## 二、主机测试(ps1)
 
@@ -65,10 +65,18 @@
 |---|---|
 | flash_manual.ps1 | 手动烧录(DAP/JLink 参数化) |
 | doctor.js --keep | 体检后保留会话,紧接着采样 |
-| task.ps1(仓库根) | 任务辅助入口 |
+| task.ps1(仓库根) | JLink GDBServer / debug 的 Makefile 片段(不是 PowerShell 脚本) |
 | lib/preflight.js | JS 工具共享的桥接预检 |
 
-## 六、新增工具的准入清单
+## 六、Skill 封装(rm-electrical-dev/scripts)
+
+| 脚本 | 用途 |
+|---|---|
+| verify.py | 一条命令跑 守卫 + 链接 + 可选主机测试,输出单结论 |
+| dev_id.py | 生成时间戳 DEV 编号并检查重复(扫 DEVLOG + 开发史 + git log) |
+| power_calib.py | RTT 采点 → CSV → 功率模型拟合 的整链封装 |
+
+## 七、新增工具的准入清单
 
 1. 有唯一职责;与现有工具重叠时先扩展现有工具(如 --preset)。
 2. 引用固件符号必须登记 `.Doc/gate/tool-symbols.json` 并过 check_symbol_contract。

@@ -36,8 +36,26 @@ void chassis_mecanum_calculate(void)
             SENTRY_CHASSIS_WHEEL_RATIO;
 }
 
-void chassis_limit_output(void)
+void chassis_limit_output(float power_scale, float integral_scale)
 {
+    if (!(power_scale > 0.0f) || power_scale > 1.0f)
+        power_scale = 1.0f;
+    if (!(integral_scale >= 0.0f))
+        integral_scale = 1.0f;
+    if (integral_scale > 1.0f)
+        integral_scale = 1.0f;
+
+    /* 功率限幅压电流指令,同时按比例压低速度环积分限幅防 windup。 */
+    motor_lf->output_scale = power_scale;
+    motor_rf->output_scale = power_scale;
+    motor_lb->output_scale = power_scale;
+    motor_rb->output_scale = power_scale;
+    const float integral_limit = (float)CHASSIS_SPEED_PID_IL * power_scale * integral_scale;
+    motor_lf->motor_controller.speed_PID.IntegralLimit = integral_limit;
+    motor_rf->motor_controller.speed_PID.IntegralLimit = integral_limit;
+    motor_lb->motor_controller.speed_PID.IntegralLimit = integral_limit;
+    motor_rb->motor_controller.speed_PID.IntegralLimit = integral_limit;
+
     float max_speed = fmaxf(fmaxf(fabsf(vt_lf), fabsf(vt_rf)), fmaxf(fabsf(vt_lb), fabsf(vt_rb)));
     float limit = CHASSIS_MAX_MOTOR_RPM * FW_RPM_TO_DEG_S;
     if (max_speed > limit)

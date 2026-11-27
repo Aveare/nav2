@@ -9,6 +9,7 @@
  */
 #include "chassis.h"
 #include "chassis_internal.h"
+#include "chassis_power.h"
 #include "robot_def.h"
 #include "sentry_def.h"
 #include "msg.h"
@@ -29,6 +30,7 @@ static msg_pub_t chassis_pub;
 static msg_sub_t chassis_sub;
 static cmd_watchdog_t chassis_cmd_wd;
 static referee_interactive_info_t ui_data;
+static referee_info_t *referee_data;
 static attitude_t *chassis_imu;
 
 static float chassis_vx_ramp, chassis_vy_ramp;
@@ -41,6 +43,9 @@ float vt_lf, vt_rf, vt_lb, vt_rb;
 float est_vx, est_vy, est_wz;
 
 static sentry_chassis_feed_t chassis_fb;
+
+/* 运行期可写(ELF/DWARF):导航平移斜坡 mm/s^2;默认=config。 */
+volatile float sentry_rt_nav_accel_mm_s2 = SENTRY_NAVIGATION_ACCEL_MM_S2;
 
 void chassis_init(void)
 {
@@ -89,7 +94,10 @@ void chassis_init(void)
     /* 裁判系统接收注册(USART6);ui_enable=false 时不创建 UI 绘制任务,
      * 但数据表仍由串口中断持续填充,供热量守卫/功率监控读取。 */
 #if !YAW_AUTO_VOFA_USART6_ENABLE
-    (void)referee_ui_task_init(&huart6, &ui_data);
+    referee_data = referee_ui_task_init(&huart6, &ui_data);
+#endif
+#if CHASSIS_POWER_CTRL_EN
+    chassis_power_reset();
 #endif
 
     chassis_sub = msg_sub("chassis_cmd", sizeof(chassis_ctrl_cmd_t));
@@ -111,7 +119,7 @@ void chassis_task(void)
         break; /* 已是底盘速度,保留导航 wz。 */
 
     case CHASSIS_NO_FOLLOW:
-        chassis_cmd_recv.wz = 0.0f;
+        MOTOR_LIMIT_MIN_MAX(chassis_cmd_recv.wz, -CHASSIS_ROTATE_SPEED, CHASSIS_ROTATE_SPEED);
         break;
 
     case CHASSIS_RC_CONTROL:
@@ -198,11 +206,14 @@ void chassis_task(void)
         if (dt_ms > 0.0f && dt_ms <= 100.0f)
         {
             float dt_sec = dt_ms * 0.001f;
+            float nav_accel = sentry_rt_nav_accel_mm_s2;
+            if (!(nav_accel >= 50.0f && nav_accel <= 5000.0f))
+                nav_accel = SENTRY_NAVIGATION_ACCEL_MM_S2;
             const float accel = chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION
-                                    ? SENTRY_NAVIGATION_ACCEL_MM_S2
+                                    ? nav_accel
                                     : CHASSIS_VX_RAMP;
             const float lateral_accel = chassis_cmd_recv.chassis_mode == CHASSIS_NAVIGATION
-                                            ? SENTRY_NAVIGATION_ACCEL_MM_S2
+                                            ? nav_accel
                                             : CHASSIS_VY_RAMP;
             chassis_vx_ramp =
                 chassis_ramp_to(chassis_vx_ramp, chassis_cmd_recv.vx, accel, dt_sec);
@@ -240,7 +251,55 @@ void chassis_task(void)
 
     /* 7. 运动学 */
     chassis_mecanum_calculate();
-    chassis_limit_output();
+
+    /* 8. 功率限幅:用未限幅电流指令 + 转子转速预测,scale 直接压四轮电流。
+     * 裁判未接时回退 config 兜底值;缓冲能量只在收到过 0x0202 后参与衰减。 */
+    float power_scale = 1.0f;
+    float integral_scale = 1.0f;
+#if CHASSIS_POWER_CTRL_EN
+    {
+        const float i_cmd[4] = {
+            motor_lf->current_cmd,
+            motor_rf->current_cmd,
+            motor_lb->current_cmd,
+            motor_rb->current_cmd,
+        };
+        const float w_dps[4] = {
+            motor_lf->measure.speed_aps,
+            motor_rf->measure.speed_aps,
+            motor_lb->measure.speed_aps,
+            motor_rb->measure.speed_aps,
+        };
+        float limit_w = CHASSIS_POWER_LIMIT_DEFAULT;
+        if (referee_data != NULL &&
+            (float)referee_data->GameRobotState.chassis_power_limit > 1.0f)
+        {
+            limit_w = (float)referee_data->GameRobotState.chassis_power_limit;
+            if (limit_w > CHASSIS_POWER_LIMIT_MAX)
+                limit_w = CHASSIS_POWER_LIMIT_MAX;
+        }
+        limit_w -= CHASSIS_POWER_MARGIN_W;
+        if (limit_w < 20.0f)
+            limit_w = 20.0f;
+        if (referee_data != NULL && referee_data->PowerHeatTick > 0u)
+        {
+            float be = (float)referee_data->PowerHeatData.buffer_energy;
+            if (be > 0.0f)
+            {
+                if (be > CHASSIS_POWER_BUFFER_MAX_J)
+                    be = CHASSIS_POWER_BUFFER_MAX_J;
+                const float atten = CHASSIS_POWER_BUFFER_MIN_SCALE +
+                                    (1.0f - CHASSIS_POWER_BUFFER_MIN_SCALE) *
+                                        (be / CHASSIS_POWER_BUFFER_MAX_J);
+                limit_w *= atten;
+            }
+        }
+        power_scale = chassis_power_scale(i_cmd, w_dps, limit_w, CHASSIS_POWER_MIN_SCALE, NULL,
+                                          NULL);
+    }
+#endif
+
+    chassis_limit_output(power_scale, integral_scale);
     chassis_estimate_speed();
 
     /* 8. 遥测与反馈 */

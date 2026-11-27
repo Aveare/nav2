@@ -11,7 +11,92 @@
 #include "general_def.h"
 #include "can_port.h"
 #include "motor_def.h"
+#include "dwt_port.h"
+#include "log_port.h"
+#include "vision_link.h"
 #include <math.h>
+
+/* 运行期可写(ELF/DWARF):世界 yaw 偏置;默认=config,不改变上电行为。 */
+volatile float sentry_rt_auto_aim_yaw_offset_deg = SENTRY_AUTO_AIM_YAW_OFFSET_DEG;
+
+/* ---------------- 自瞄目标解算(左中挡 / 键鼠 Shift 共用) ---------------- */
+
+static float auto_aim_last_valid_ms;
+static float auto_aim_hold_yaw;
+static float auto_aim_hold_pitch;
+static uint8_t auto_aim_have_target;
+
+/**
+ * @brief 读取 0x0503 并更新 gimbal_cmd 的世界目标
+ * @return 1=本拍由自瞄控制云台(含目标丢失后的保持窗);0=退回手动
+ * @note  只做目标整形,不写 gimbal mode;调用方决定 AUTO_AIM/GYRO。
+ *        目标断帧后保持 SENTRY_AUTO_AIM_HOLD_MS,超时才交还手动。
+ */
+int cmd_auto_aim_set(void)
+{
+#if SENTRY_AUTO_AIM_ENABLE
+    const float now_ms = dwt_get_timeline_ms();
+    vision_state_t vision;
+    vision_link_get_state(&vision);
+    const uint8_t right_up =
+        REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right);
+    const uint8_t valid =
+        (uint8_t)(robot_state == ROBOT_STATUS_READY && remote_control_is_online() && !right_up &&
+                  vision.valid && vision.command.target_id != 0u &&
+                  isfinite(vision.command.yaw) && isfinite(vision.command.pitch));
+
+    if (valid)
+    {
+        ax650_raw_yaw_target = vision.command.yaw;
+        const float yaw_offset = isfinite(sentry_rt_auto_aim_yaw_offset_deg)
+                                     ? sentry_rt_auto_aim_yaw_offset_deg
+                                     : SENTRY_AUTO_AIM_YAW_OFFSET_DEG;
+        float yaw = vision.command.yaw + yaw_offset;
+#if YAW_AUTO_KF_ENABLE
+        yaw = cmd_yaw_auto_kalman_update(yaw, vision.command.yaw_speed, vision.command.target_id,
+                                         vision.command_count, now_ms);
+#endif
+#if YAW_AUTO_SMOOTH_ENABLE
+        yaw = cmd_yaw_auto_smooth_update(yaw, gimbal_fb_recv.big_yaw_world_deg, now_ms);
+#endif
+        float pitch = vision.command.pitch;
+        MOTOR_LIMIT_MIN_MAX(pitch, SENTRY_AUTO_AIM_PITCH_MIN_DEG, SENTRY_AUTO_AIM_PITCH_MAX_DEG);
+
+        gimbal_cmd.big_yaw = yaw;
+        gimbal_cmd.pitch_abs = pitch;
+        gimbal_cmd.aim_valid = 1u;
+        auto_aim_fire_request = (vision.command.shoot != 0u) ? 1u : 0u;
+        auto_aim_hold_yaw = yaw;
+        auto_aim_hold_pitch = pitch;
+        auto_aim_last_valid_ms = now_ms;
+        auto_aim_have_target = 1u;
+        return 1;
+    }
+
+    auto_aim_fire_request = 0u;
+#if YAW_AUTO_KF_ENABLE
+    cmd_yaw_auto_kalman_reset();
+#endif
+#if YAW_AUTO_SMOOTH_ENABLE
+    cmd_yaw_auto_smooth_reset();
+#endif
+    if (auto_aim_have_target &&
+        (now_ms - auto_aim_last_valid_ms) <= SENTRY_AUTO_AIM_HOLD_MS)
+    {
+        gimbal_cmd.big_yaw = auto_aim_hold_yaw;
+        gimbal_cmd.pitch_abs = auto_aim_hold_pitch;
+        gimbal_cmd.aim_valid = 1u;
+        return 1;
+    }
+    gimbal_cmd.aim_valid = 0u;
+    auto_aim_have_target = 0u;
+    return 0;
+#else
+    gimbal_cmd.aim_valid = 0u;
+    auto_aim_fire_request = 0u;
+    return 0;
+#endif
+}
 
 #if YAW_AUTO_KF_ENABLE
 typedef struct

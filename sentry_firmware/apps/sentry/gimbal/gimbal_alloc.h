@@ -44,4 +44,25 @@ static inline void sentry_gimbal_allocate(float target_world, float big_world, f
     *big_target = big_world + sentry_gimbal_wrap180((target_world - err) - big_world);
 }
 
+/**
+ * @brief 用调用方给定的小 yaw 目标(慢配平)反推大 yaw 世界目标
+ * @param target_world 世界 yaw 目标,deg
+ * @param big_world    大 yaw 当前世界角,deg
+ * @param small_cmd    小 yaw 期望相对角,deg;内部夹到 ±small_limit
+ * @param small_limit  小 yaw 可用范围,deg
+ * @param small_target 输出:夹后的小 yaw 目标,deg
+ * @param big_target   输出:大 yaw 世界目标,deg
+ * @note 大 yaw 负责快速世界环,小 yaw 只做慢配平:两者目标之和恒等于世界目标,
+ *       不会出现"两轴追同一误差"。
+ */
+static inline void sentry_gimbal_split(float target_world, float big_world, float small_cmd,
+                                       float small_limit, float *small_target, float *big_target)
+{
+    const float small = (small_cmd > small_limit) ? small_limit
+                        : (small_cmd < -small_limit) ? -small_limit
+                                                     : small_cmd;
+    *small_target = small;
+    *big_target = big_world + sentry_gimbal_wrap180((target_world - small) - big_world);
+}
+
 #endif // SENTRY_GIMBAL_ALLOC_H

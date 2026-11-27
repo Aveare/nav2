@@ -45,7 +45,7 @@ extern float est_vx, est_vy, est_wz;
 /* ---------------- 运动学纯函数 ---------------- */
 float chassis_ramp_to(float cur, float target, float accel, float dt);
 void chassis_mecanum_calculate(void);
-void chassis_limit_output(void);
+void chassis_limit_output(float power_scale, float integral_scale);
 void chassis_estimate_speed(void);
 
 #endif // SENTRY_CHASSIS_INTERNAL_H

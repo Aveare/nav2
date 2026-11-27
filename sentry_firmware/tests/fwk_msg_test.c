@@ -5,7 +5,7 @@
  * @author  小猫大王
  * @layer   TESTS
  *
- * @note    覆盖 msg-semantic-map.md 全部 12 行:一致项逐项断言,修正项断言新行为;
+ * @note    覆盖 .Doc/history/archive/gate/msg-semantic-map.md 全部 12 行:一致项逐项断言,修正项断言新行为;
  *          双线程用例:发布线程 1..N 连发(深度 1),join 后订阅者 drain 必取到
  *          最后一帧(只保最新语义在并发下成立,结果确定)。
  */

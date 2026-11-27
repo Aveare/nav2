@@ -9,6 +9,9 @@
  * @note    2026-11-25(DEV-20261125-09):反转段实车超功率,BOOST/GLIDE/BRAKE 的
  *          "加速-滑行"节拍也抬高瞬时功率;整段状态机已移除,改为在巡航转速上叠加
  *          两路不可通约的正弦。输出恒正,功率峰值只由正弦幅值与 α 限幅决定。
+ * @note    2026-11-26(DEV-20261126-25):轨迹中心改为调用方按轮速余量给出。平移+自转
+ *          会先撞 6000rpm 轮速限幅,统一缩比例把正弦削平;现在中心整体下移、上下限
+ *          同比例缩放,保持相对调制幅度,只降平均转速(见 chassis.c 余量计算)。
  * @note    随机只作用于进入相位,不随机角速度 —— 后者会被底盘惯量与速度环滤掉,
  *          只留下电流冲击。
  * @note    2026-11-26(DEV-20261126-17):每次进入随机缩放两路幅度(0.7~1.0)与
@@ -159,11 +162,53 @@ void chassis_spin_reset(uint32_t seed, float wz_start)
     s_wz_out = wz_start;
 }
 
-float chassis_spin_update(float dt_ms)
+void chassis_spin_handoff(uint32_t seed, float wz_start, uint8_t at_high)
+{
+    s_rng = (seed != 0u) ? seed : 0x9E3779B9u;
+    s_time_ms = 0.0f;
+    /* 幅度固定满幅,保证 t=0 的调制正好落在端点(0.32×中心);
+     * 频率仍随机 ±15%,相位从 ±π/2 起步:两路同相、和的导数为 0,
+     * 先稳一下,再随两路频率分开自然进入正弦。 */
+    const float f_scale =
+        spin_rand_range(CHASSIS_SPIN_MOD_F_SCALE_MIN, CHASSIS_SPIN_MOD_F_SCALE_MAX);
+    s_a1 = CHASSIS_SPIN_MOD_A1;
+    s_a2 = CHASSIS_SPIN_MOD_A2;
+    s_f1 = CHASSIS_SPIN_MOD_F1_HZ * f_scale;
+    s_f2 = CHASSIS_SPIN_MOD_F2_HZ * f_scale;
+    const float phase = (at_high != 0u) ? (FW_PI * 0.5f) : (-FW_PI * 0.5f);
+    s_phase1 = phase;
+    s_phase2 = phase;
+    s_phase_walk_ms = 0.0f;
+    s_alpha = 0.0f;
+    if (!(wz_start >= -CHASSIS_SPIN_HIGH_DPS && wz_start <= CHASSIS_SPIN_HIGH_DPS))
+        wz_start = 0.0f;
+    s_wz_out = wz_start;
+}
+
+float chassis_spin_update(float dt_ms, float center_dps, float mod_limit)
 {
     /* NaN 也要落到兜底:!(dt>0) 对 NaN 为真 */
     if (!(dt_ms > 0.0f) || dt_ms > 50.0f)
         dt_ms = CHASSIS_SPIN_NOMINAL_DT_MS;
+
+    /* 中心由调用方按平移占用的轮速余量给出;NaN/越界在此兜底。
+     * 注意 0 会被当成退化值回退巡航中心——需要停转时由调用方在输出侧乘 0。 */
+    float center = center_dps;
+    if (!(center >= CHASSIS_SPIN_CENTER_MIN_DPS))
+        center = CHASSIS_SPIN_CRUISE_DPS;
+    if (center < CHASSIS_SPIN_CENTER_MIN_DPS)
+        center = CHASSIS_SPIN_CENTER_MIN_DPS;
+    if (center > CHASSIS_SPIN_CRUISE_DPS)
+        center = CHASSIS_SPIN_CRUISE_DPS;
+
+    /* 调制限幅由调用方按平移占轮速与否给出;NaN/0 回纯自转值,上限 0.80 防误写。 */
+    float mod = mod_limit;
+    if (!(mod >= 0.05f))
+        mod = CHASSIS_SPIN_MOD_LIMIT;
+    if (mod < 0.05f)
+        mod = 0.05f;
+    if (mod > 0.80f)
+        mod = 0.80f;
 
     s_time_ms += dt_ms;
 
@@ -183,13 +228,23 @@ float chassis_spin_update(float dt_ms)
         }
     }
 
-    /* 恒正轨迹:基础巡航转速 × (1 + 调制),再按上下限兜底。
-     * 不再有反转/加速/减速段,功率峰值只随正弦幅值缓慢变化。 */
-    float target = CHASSIS_SPIN_CRUISE_DPS * (1.0f + spin_modulation());
-    if (target > CHASSIS_SPIN_HIGH_DPS)
-        target = CHASSIS_SPIN_HIGH_DPS;
-    if (target < CHASSIS_SPIN_LOW_DPS)
-        target = CHASSIS_SPIN_LOW_DPS;
+    /* 恒正轨迹:本拍中心 × (1 + 调制),上下限 = center×(1±mod)。
+     * 纯自转 mod=0.677 → 310×(0.323/1.677)=100~520;
+     * 平移占轮速时 mod 由调用方按 low/high 重算,中心下移、上下限一起收窄,
+     * 峰值仍由调用方的轮速余量兜住,不削顶(DEV-20261126-25/26)。 */
+    const float low = center * (1.0f - mod);
+    const float high = center * (1.0f + mod);
+    float m = spin_modulation(); // 原始双尺度正弦,已夹到 ±CHASSIS_SPIN_MOD_LIMIT
+    m *= mod / CHASSIS_SPIN_MOD_LIMIT;
+    if (m > mod)
+        m = mod;
+    if (m < -mod)
+        m = -mod;
+    float target = center * (1.0f + m);
+    if (target > high)
+        target = high;
+    if (target < low)
+        target = low;
 
     s_wz_out = spin_track(s_wz_out, target, CHASSIS_SPIN_ALPHA_MAX, CHASSIS_SPIN_JERK_MAX,
                           dt_ms * 0.001f);

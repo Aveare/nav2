@@ -44,7 +44,7 @@ float chassis_ramp_to(float cur, float target, float accel, float dt);
 float chassis_ramp_to_jerk(float cur, float target, float accel_max, float jerk_max, float dt,
                            float *accel_state);
 void chassis_mecanum_calculate(void);
-void chassis_limit_output(float power_scale);
+void chassis_limit_output(float power_scale, float integral_scale);
 void chassis_estimate_speed(void);
 
 #endif // CHASSIS_INTERNAL_H

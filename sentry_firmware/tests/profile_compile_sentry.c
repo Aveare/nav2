@@ -22,16 +22,17 @@ int main(void)
 {
     if (SENTRY_BIG_YAW_OUTPUT_ENABLE != 1)
     {
-        puts("FAIL: migrated sentry big-yaw output must be enabled");
+        puts("FAIL: sentry big-yaw output must be enabled after user-confirmed repair");
         return 1;
     }
-    if (SENTRY_BIG_YAW_TORQUE_NM > SENTRY_BIG_YAW_TORQUE_RANGE_NM ||
-        SENTRY_BIG_YAW_INTEGRAL_NM > SENTRY_BIG_YAW_TORQUE_NM ||
+    if (SENTRY_BIG_YAW_MAX_TORQUE_NM > 10.0f ||
+        SENTRY_BIG_YAW_SPEED_MAXOUT > SENTRY_BIG_YAW_MAX_TORQUE_NM ||
+        SENTRY_BIG_YAW_SPEED_IL > SENTRY_BIG_YAW_SPEED_MAXOUT ||
         SENTRY_BIG_YAW_SPEED_KP <= 0.0f || SENTRY_BIG_YAW_SPEED_KI < 0.0f)
     {
         puts("FAIL: sentry big-yaw torque limits");
         return 1;
     }
-    puts("PASS: profile sentry anchors (auto, migrated big-yaw enabled, torque limits)");
+    puts("PASS: profile sentry anchors (auto, big-yaw enabled, torque limits)");
     return 0;
 }

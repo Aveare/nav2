@@ -33,6 +33,8 @@ extern sentry_shoot_feed_t shoot_fb_recv;
 extern float ax650_raw_yaw_target;
 extern uint8_t yaw_recentering;
 extern uint16_t recenter_cnt;
+extern uint8_t auto_aim_active;       // 左中挡/Shift 选中自瞄
+extern uint8_t auto_aim_fire_request; // 视觉 shoot 请求
 
 /* ---------------- 跨 TU 函数 ---------------- */
 
@@ -40,6 +42,9 @@ void cmd_update_input_source(void);
 void cmd_keyboard_mouse_set(void);
 void cmd_remote_set(void);
 void cmd_authority_arbitrate(void);
+
+uint8_t cmd_kbm_auto_aim_held(void);
+int cmd_auto_aim_set(void);
 
 void cmd_fire_tier_cycle(void);
 fire_tier_e cmd_fire_tier_get(void);

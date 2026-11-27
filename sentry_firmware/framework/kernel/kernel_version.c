@@ -12,5 +12,5 @@ const uint32_t fw_abi_anchor __attribute__((section(".fw_anchor"), used)) = 0xB1
 
 const char *fw_version(void)
 {
-    return "fw 0.1.0-b1 (jit-rm-1029)";
+    return "fw 0.1.0-b1 (rm-jit-cr)";
 }

@@ -14,13 +14,13 @@
 void gimbal_init(void);
 
 /**
- * @brief 三轴云台任务:大 yaw 回正/稳像 + pitch 力矩环 + 小 yaw 相对位置环
+ * @brief 三轴云台任务:大 yaw 回正/纯速度补偿 + pitch 轴增量 + 小 yaw 独立限位
  * @note 由 robot_task() 以 200Hz 调用;内部持有 PID/反馈状态,不可并发调用。
  */
 void gimbal_task(void);
 
 /**
- * @brief 当前 pitch IMU 角,deg(供标定/调试读取)
+ * @brief 当前 pitch 电机输出轴角,deg(供标定/调试读取)
  */
 float gimbal_get_pitch_deg(void);
 

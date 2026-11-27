@@ -16,6 +16,12 @@
  *          - 电流/转速取绝对值,制动工况按正功率保守估计;
  *          - 衰减系数直接乘电机输出电流(`output_scale`),不再只压 MaxOut;
  *          - 加标定系数 SCALE/BIAS 与一阶低通。
+ * @note    2026-11-27(DEV-20261127-200745):**制动轮不再计入功率预算**。
+ *          裁判功率量的是电池输入,回馈制动的电功率为负,不会超限;
+ *          旧实现取 |i||ω| 把 2000 mm/s 的满刹车判成约 450W,scale 压到 0.20,
+ *          实车表现为松杆滑行、8000 mm/s² 的刹车斜坡基本不生效。
+ *          现在 i 与 ω 反号的轮直接跳过求和,scale 只约束电动轮
+ *          (配套 `chassis_limit_output` 对制动轮保持 output_scale=1)。
  */
 #include "chassis_power.h"
 #include "robot_def.h"
@@ -34,6 +40,7 @@ void chassis_power_reset(void)
  * @param i_raw 未限幅电流指令,C620 原始码
  * @param w_dps 转子转速,deg/s
  * @note  模型输入 i=码/1000、w=rpm;取绝对值与 304 默认口径一致。
+ *        调用方须先剔除制动轮(i 与 w 反号),本函数不做符号判断。
  */
 static void motor_power_coeffs(float i_raw, float w_dps, float *c0, float *c1, float *c2)
 {
@@ -45,16 +52,26 @@ static void motor_power_coeffs(float i_raw, float w_dps, float *c0, float *c1, f
 }
 
 float chassis_power_scale(const float current_cmd[4], const float w_dps[4], float limit_w,
-                          float *p_pred_out)
+                          float min_scale, float *p_pred_out, float *p_post_out)
 {
     if (!(limit_w > 1.0f) || limit_w > 200.0f)
         limit_w = CHASSIS_POWER_LIMIT_DEFAULT;
     if (p_pred_out != 0)
         *p_pred_out = 0.0f;
+    if (p_post_out != 0)
+        *p_post_out = 0.0f;
+    if (!(min_scale >= 0.0f))
+        min_scale = 0.0f;
+    if (min_scale > 1.0f)
+        min_scale = 1.0f;
 
     float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f;
     for (uint8_t k = 0u; k < 4u; k++)
     {
+        /* 制动轮(i 与 ω 反号)跳过:回馈制动的电功率为负,不占电池功率预算。
+         * 静止(w=0)按电动处理,保证起步电流仍受模型约束。 */
+        if (current_cmd[k] * w_dps[k] < 0.0f)
+            continue;
         float c0, c1, c2;
         motor_power_coeffs(current_cmd[k], w_dps[k], &c0, &c1, &c2);
         s0 += c0;
@@ -119,12 +136,21 @@ float chassis_power_scale(const float current_cmd[4], const float w_dps[4], floa
     if (s_raw < 0.0f)
         s_raw = 0.0f;
 
-    /* 一阶低通:电流指令本身有噪声,衰减系数跳变会让四轮扭矩同时阶跃。
-     * 降额方向也过滤,但 0.6/拍在 200Hz 下约 3 拍到 95%,不会明显拖慢保护。 */
-    s_scale_lp += CHASSIS_POWER_SCALE_LP * (s_raw - s_scale_lp);
+    /* 快降慢升(DEV-20261126-31):功率超限必须同拍降额,否则切入/松杆的
+     * 100~110W 尖峰会先跑 15ms 才被 scale 追上;恢复方向再低通,避免电流阶跃。
+     * 原对称 0.6/拍连降额也过滤,保护延迟正好盖住尖峰第一段。 */
+    if (s_raw < s_scale_lp)
+        s_scale_lp = s_raw; // 降额:同拍生效
+    else
+        s_scale_lp += CHASSIS_POWER_SCALE_LP * (s_raw - s_scale_lp); // 恢复:慢升
     if (s_scale_lp > 1.0f)
         s_scale_lp = 1.0f;
-    if (s_scale_lp < CHASSIS_POWER_SCALE_MIN)
-        s_scale_lp = CHASSIS_POWER_SCALE_MIN;
+    const float floor_s = fmaxf(CHASSIS_POWER_SCALE_MIN, min_scale);
+    if (s_scale_lp < floor_s)
+        s_scale_lp = floor_s;
+
+    /* 缩放后的模型功率:验证“限幅后实际模型”用,避免只看限幅前的 p */
+    if (p_post_out != 0)
+        *p_post_out = s0 + s1 * s_scale_lp + s2 * s_scale_lp * s_scale_lp;
     return s_scale_lp;
 }

@@ -23,6 +23,7 @@
 #include "fault_port.h" // fault_hold_active:开机故障文本独占期(DEV-20261121-09)
 #include "referee_ui.h"
 #include "arm_math.h"
+#include <math.h>      // sqrtf/fabsf:小陀螺轮速余量与刹车判据
 #include "telemetry.h" // P1 速度估计验证:底盘反馈遥测环 + [chcal] 标定日志
 #if CHASSIS_VOFA_UART1_ENABLE
 #include "usart_port.h" // 视觉口改作调试口:实例注册与非阻塞发送
@@ -75,6 +76,10 @@ float est_vx, est_vy, est_wz; // mm/s, mm/s, deg/s
  * 写入时在 ROTATE 分支夹到 [0, CHASSIS_SPIN_HIGH_DPS],防止误写把底盘甩飞。
  * 变速档的正弦中心仍用 CHASSIS_SPIN_CRUISE_DPS,不受本变量影响。 */
 volatile float chassis_rotate_speed_deg_s = CHASSIS_ROTATE_SPEED;
+/* 调试可写(ELF/DWARF):匀速档**带平移**时的自转速度,deg/s。默认 520,带平移时由
+ * 7500rpm 轮速 governor 夹低(1500 平移约 344、2000 约 285);
+ * 纯自转匀速仍用 chassis_rotate_speed_deg_s。 */
+volatile float chassis_rotate_speed_trans_deg_s = CHASSIS_ROTATE_SPEED_TRANS;
 /* 调试可写(ELF/DWARF):小陀螺平移方向偏置角,deg。默认宏值;
  * 正/负号决定补偿方向,写 0 可看纯漂移。实车标定用,掉电恢复宏值。 */
 volatile float chassis_translate_bias_deg = CHASSIS_TRANSLATE_BIAS_ANGLE;
@@ -92,10 +97,77 @@ volatile float chassis_vy_ramp_accel = CHASSIS_VY_RAMP;
 /* 调试可写:平移 jerk 上限,mm/s³(S 曲线加速度变化率)。默认宏值;0=退回线性斜坡。 */
 volatile float chassis_vx_jerk = CHASSIS_VX_JERK;
 volatile float chassis_vy_jerk = CHASSIS_VY_JERK;
-/* 小陀螺功率衰减系数(0~1):功率超限时只乘到 wz,平移指令保持(与跟随同速)。 */
+/* 调试可写:减速段平移斜坡参数(松杆/反向扳杆时使用)。默认宏值;
+ * <=0 回退到加速段参数(对称斜坡)。加速段始终用上面的 ramp_accel/jerk,不受影响。 */
+volatile float chassis_vx_brake_ramp = CHASSIS_VX_BRAKE_RAMP;
+volatile float chassis_vy_brake_ramp = CHASSIS_VY_BRAKE_RAMP;
+volatile float chassis_vx_brake_jerk = CHASSIS_VX_BRAKE_JERK;
+volatile float chassis_vy_brake_jerk = CHASSIS_VY_BRAKE_JERK;
+/* 小陀螺自转功率 scale:DEV-20261126-33 起退役,恒 1(总 scale 永远作用于四轮电流);
+ * 保留变量仅为 [pwr] ss= 兼容与旧调试脚本读取。 */
 volatile float chassis_spin_power_scale = 1.0f;
+/* 调试可写:小陀螺模式平移最大速度,mm/s。<=0 退回 CHASSIS_MAX_SPEED。
+ * 与纯平移同上限 2000;自转由 7500rpm 轮速 governor 自动夹低(2000 平移约 285)。 */
+volatile float chassis_spin_max_speed_mm_s = CHASSIS_SPIN_MAX_SPEED;
+/* 调试可写:小陀螺模式轮转子转速上限,rpm。<=0 回退宏值,超过 6000 夹到 6000。 */
+volatile float chassis_spin_wheel_rpm_max = CHASSIS_SPIN_WHEEL_RPM_MAX;
+/* 调试可写:刹车时自转削减比例(0~1)。0=关闭;越大刹车越优先,自转让出摩擦圆越多。 */
+volatile float chassis_spin_brake_gain = CHASSIS_SPIN_BRAKE_GAIN;
+/* 调试可写:平移段变速带下/上界,deg/s。默认 150~450(纯自转 100~520 的平移段收窄);
+ * 高段实际还会被轮速余量夹低。0=回退默认。 */
+volatile float chassis_spin_trans_low_dps = CHASSIS_SPIN_TRANS_LOW_DPS;
+volatile float chassis_spin_trans_high_dps = CHASSIS_SPIN_TRANS_HIGH_DPS;
+/* 调试可写:平移→纯自转交接保持时长,ms;0=直接切。 */
+volatile float chassis_spin_handoff_hold_ms = CHASSIS_SPIN_HANDOFF_HOLD_MS;
+/* 调试可写:交接 RAMP/HOLD 段速度环积分限幅比例(0~1);1=不压,0=去积分。 */
+volatile float chassis_spin_handoff_integral_scale = CHASSIS_SPIN_HANDOFF_INTEGRAL_SCALE;
+/* 调试可写:平移切入后自转保持低位的时长,ms;0=关闭入口保持。 */
+volatile float chassis_spin_entry_hold_ms = CHASSIS_SPIN_ENTRY_HOLD_MS;
+/* 调试可写:入口保持段的自转带宽,deg/s(默认 30 → 150~180)。 */
+volatile float chassis_spin_entry_band_dps = CHASSIS_SPIN_ENTRY_BAND_DPS;
+/* 调试可写:总功率 scale 下限(0.20);模型需要更低时由 POWER_SCALE_MIN 兜底。 */
+volatile float chassis_power_min_scale = CHASSIS_POWER_MIN_SCALE;
+/* 调试可写:平移切入瞬态窗口,ms;只影响积分压限/入口保持,不再开关总 scale。 */
+volatile float chassis_power_trans_entry_ms = CHASSIS_POWER_TRANS_ENTRY_MS;
+/* 调试可写:交接结束后的积分压限尾巴,ms。 */
+volatile float chassis_power_trans_tail_ms = CHASSIS_POWER_TRANS_TAIL_MS;
+/* 调试可写(32 位,ELF 写方便):小陀螺档位覆盖,优先级高于键鼠 C。
+ * 0=跟随 chassis_cmd_recv.spin_vary;1=强制匀速;2=强制变速。
+ * 手柄/台架没有 C 键时直接写本变量;写回 0 恢复 C 键控制。 */
+volatile uint32_t chassis_spin_mode_override = 0;
+/* 本拍生效档位(1=变速 0=匀速),供偏置参考与 [pwr] sv= 使用。 */
+static uint8_t chassis_spin_vary_active = 1u;
+/* 上拍平移是否在占轮速:匀速档据此选 260(平移)/300(纯自转)。 */
+static uint8_t chassis_spin_trans_active = 0u;
+/* 小陀螺轨迹内部状态(单写者=chassis_task,供下一拍使用,滞后 5ms):
+ * center=当前轨迹中心转速, cap=当前轮速允许的最大自转, brake=刹车削减系数,
+ * mod=当前调制限幅;flow=平移/交接/纯自转状态机。 */
+typedef enum
+{
+    SPIN_FLOW_TRANS = 0, // 平移中:用 150~450 带
+    SPIN_FLOW_RAMP,      // 刚松杆:向最近纯自转端点(100/520)爬升
+    SPIN_FLOW_HOLD,      // 到端点保持,等轮速收敛
+    SPIN_FLOW_PURE,      // 纯自转:100~520 正弦
+} spin_flow_e;
+static float chassis_spin_center = CHASSIS_SPIN_CRUISE_DPS;
+static float chassis_spin_wz_cap = CHASSIS_SPIN_HIGH_DPS;
+static float chassis_spin_brake = 1.0f;
+static float chassis_spin_mod_limit = CHASSIS_SPIN_MOD_LIMIT;
+static spin_flow_e chassis_spin_flow = SPIN_FLOW_PURE;
+static float chassis_spin_handoff_target = CHASSIS_SPIN_LOW_DPS;
+static float chassis_spin_handoff_wz = 0.0f;
+static float chassis_spin_handoff_ms = 0.0f;
+static float chassis_spin_last_wz = 0.0f;
+/* 入口保持与瞬态总 scale 的计时(单写者=chassis_task): */
+static float chassis_spin_entry_ms = 0.0f;         // 入口自转保持剩余,ms
+static uint8_t chassis_spin_prev_trans = 0u;       // 上拍 trans_active,做上升沿
+static float chassis_power_transient_ms = 0.0f;    // 瞬态总 scale 窗口剩余,ms
+static uint8_t chassis_power_transient_active = 0u; // 本拍瞬态总 scale 标志
 #if CHASSIS_CALIB_LOG
-static uint16_t chassis_calib_cnt; // 标定日志分频计数(200Hz / 100 = 0.5s)
+static uint16_t chassis_calib_cnt; // 标定日志分频计数
+/* 调试可写:标定日志分频,200Hz/div;默认 100=2Hz(0.5s),写 10=20Hz(瞬态复采),
+ * 写 1=200Hz(仅短时,日志量很大)。运行期改,不用重编译。 */
+volatile uint16_t chassis_calib_log_div = 100u;
 #endif
 
 dji_motor_t *motor_lf, *motor_rf, *motor_lb, *motor_rb; // left right forward back
@@ -108,6 +180,266 @@ static usart_t *chassis_vofa_usart;
 /* 私有中介变量,设为静态避免参数传递开销 */
 float chassis_vx, chassis_vy;     // 云台系速度投影到底盘系
 float vt_lf, vt_rf, vt_lb, vt_rb; // 解算后的轮速,待限幅
+
+/**
+ * @brief 小陀螺平移限速:CHASSIS_ROTATE 下按合速度等比缩到运行期上限
+ * @note  命令在云台系,等比缩不改方向;缩放发生在偏置/斜坡之前,减速仍受 S 曲线约束。
+ *        上限 <=0 或超过 CHASSIS_MAX_SPEED 时按 CHASSIS_MAX_SPEED 兜底(不额外限速)。
+ */
+static void chassis_spin_limit_translate(void)
+{
+    float cap = chassis_spin_max_speed_mm_s;
+    if (!(cap > 0.0f) || cap > CHASSIS_MAX_SPEED)
+        cap = CHASSIS_MAX_SPEED;
+    const float norm = sqrtf(chassis_cmd_recv.vx * chassis_cmd_recv.vx +
+                             chassis_cmd_recv.vy * chassis_cmd_recv.vy);
+    if (norm > cap)
+    {
+        const float scale = cap / norm;
+        chassis_cmd_recv.vx *= scale;
+        chassis_cmd_recv.vy *= scale;
+    }
+}
+
+/**
+ * @brief 刹车优先:平移在减速时按减速度比例削减自转,把摩擦圆让给前后刹车
+ * @return 本拍自转系数,CHASSIS_SPIN_BRAKE_MIN~1
+ * @note  用上一拍的 S 曲线加速度状态:本函数在模式解算(switch)里调用,而斜坡块在其后,
+ *        5ms 滞后对刹车无害。只在速度方向与加速度相反(真减速)且速度高于
+ *        CHASSIS_SPIN_BRAKE_SPEED_MIN 时触发;低通 25ms,比轨迹 α 限幅快。
+ *        松开自转削减后由低通自然恢复,不会在下一次刹车前残留。
+ */
+static float chassis_spin_brake_factor(void)
+{
+    float demand = 0.0f;
+    if (chassis_vx_ramp * chassis_vx_accel_state < 0.0f)
+    {
+        const float a_ref = (chassis_vx_ramp_accel > 0.0f) ? chassis_vx_ramp_accel : CHASSIS_VX_RAMP;
+        demand = fabsf(chassis_vx_accel_state) / a_ref;
+    }
+    if (chassis_vy_ramp * chassis_vy_accel_state < 0.0f)
+    {
+        const float a_ref = (chassis_vy_ramp_accel > 0.0f) ? chassis_vy_ramp_accel : CHASSIS_VY_RAMP;
+        const float d = fabsf(chassis_vy_accel_state) / a_ref;
+        if (d > demand)
+            demand = d;
+    }
+    if (demand > 1.0f)
+        demand = 1.0f;
+
+    const float vmag = sqrtf(chassis_vx_ramp * chassis_vx_ramp +
+                             chassis_vy_ramp * chassis_vy_ramp);
+    float gain_max = chassis_spin_brake_gain;
+    if (!(gain_max > 0.0f))
+        gain_max = 0.0f;
+    if (gain_max > 1.0f)
+        gain_max = 1.0f;
+
+    float tgt = 1.0f;
+    if (vmag > CHASSIS_SPIN_BRAKE_SPEED_MIN && demand > 0.0f)
+        tgt = 1.0f - gain_max * demand;
+    if (tgt < CHASSIS_SPIN_BRAKE_MIN)
+        tgt = CHASSIS_SPIN_BRAKE_MIN;
+    if (tgt > 1.0f)
+        tgt = 1.0f;
+
+    chassis_spin_brake += CHASSIS_SPIN_BRAKE_LP * (tgt - chassis_spin_brake);
+    if (!(chassis_spin_brake >= CHASSIS_SPIN_BRAKE_MIN)) // NaN 兜底
+        chassis_spin_brake = CHASSIS_SPIN_BRAKE_MIN;
+    if (chassis_spin_brake > 1.0f)
+        chassis_spin_brake = 1.0f;
+    return chassis_spin_brake;
+}
+
+/**
+ * @brief 按平移占用重算自转余量,并驱动平移/纯自转交接状态机
+ * @param now_ms 本拍时刻,ms(DWT 时间线)
+ * @note  45°麦轮几何:平移 1mm/s 占 0.7071*WHEEL_RATIO deg/s 转子,
+ *        自转 1deg/s 占 CENTER*0.7071*WHEEL_RATIO deg/s。取四轮最坏值 |vx|+|vy|,
+ *        所以用投影到底盘系(含平移偏置/横向前馈)的 vx/vy。
+ *        平移时用 150~450 带(高段被轮速余量夹低);停平移后进入交接:
+ *        先向最近端点(100 或 520)爬升并保持 200ms,再从该端点相位重启 100~520
+ *        正弦(DEV-20261126-28)。非 ROTATE 复位。
+ */
+static void chassis_spin_headroom_update(float now_ms)
+{
+    static float last_ms = 0.0f;
+    float dt_ms = now_ms - last_ms;
+    last_ms = now_ms;
+    if (!(dt_ms > 0.0f) || dt_ms > 100.0f)
+        dt_ms = 5.0f;
+
+    if (chassis_cmd_recv.chassis_mode != CHASSIS_ROTATE)
+    {
+        chassis_spin_center = CHASSIS_SPIN_CRUISE_DPS;
+        chassis_spin_wz_cap = CHASSIS_SPIN_HIGH_DPS;
+        chassis_spin_brake = 1.0f;
+        chassis_spin_mod_limit = CHASSIS_SPIN_MOD_LIMIT;
+        chassis_spin_flow = SPIN_FLOW_PURE;
+        chassis_spin_handoff_target = CHASSIS_SPIN_LOW_DPS;
+        chassis_spin_handoff_wz = 0.0f;
+        chassis_spin_handoff_ms = 0.0f;
+        chassis_spin_last_wz = 0.0f;
+        chassis_spin_entry_ms = 0.0f;
+        chassis_spin_prev_trans = 0u;
+        chassis_spin_trans_active = 0u;
+        chassis_power_transient_ms = 0.0f;
+        chassis_power_transient_active = 0u;
+        return;
+    }
+
+    float rpm_max = chassis_spin_wheel_rpm_max;
+    if (!(rpm_max > 0.0f))
+        rpm_max = CHASSIS_SPIN_WHEEL_RPM_MAX;
+    if (rpm_max > CHASSIS_MAX_MOTOR_RPM)
+        rpm_max = CHASSIS_MAX_MOTOR_RPM;
+
+    const float trans_wheel =
+        (fabsf(chassis_vx) + fabsf(chassis_vy)) * 0.70710678f * CHASSIS_WHEEL_RATIO;
+    const float headroom = rpm_max * FW_RPM_TO_DEG_S - trans_wheel;
+
+    float wz_cap = 0.0f;
+    if (headroom > 0.0f)
+        wz_cap = headroom / (CHASSIS_LF_CENTER * 0.70710678f * CHASSIS_WHEEL_RATIO);
+    if (wz_cap > CHASSIS_SPIN_HIGH_DPS)
+        wz_cap = CHASSIS_SPIN_HIGH_DPS;
+    chassis_spin_wz_cap = wz_cap;
+
+    const int trans_active = (trans_wheel > CHASSIS_SPIN_MOD_TRANS_MIN_DPS);
+
+    /* 平移切入上升沿:开两个窗口
+     * ① 瞬态总 scale(DEV-20261126-31):覆盖 S 曲线加速段,对四轮电流生效;
+     * ② 入口自转保持(DEV-20261126-31):变速档先把自转压在 150~180,
+     *    200ms 后再放宽到 150~320,避免平移和自转同时加速。 */
+    if (trans_active && !chassis_spin_prev_trans)
+    {
+        float entry_ms = chassis_power_trans_entry_ms;
+        if (!(entry_ms > 0.0f))
+            entry_ms = 0.0f;
+        if (entry_ms > 2000.0f)
+            entry_ms = 2000.0f;
+        chassis_power_transient_ms = entry_ms;
+
+        if (chassis_spin_vary_active)
+        {
+            float hold = chassis_spin_entry_hold_ms;
+            if (!(hold > 0.0f))
+                hold = 0.0f;
+            if (hold > 1000.0f)
+                hold = 1000.0f;
+            chassis_spin_entry_ms = hold;
+
+            /* 入口保持直接置中心/调制(150~180、中心 165),不再等 100ms 中心低通:
+             * 20Hz 实测 200ms 只到 ct=184,延长到 300ms 并直接置位。 */
+            float low = chassis_spin_trans_low_dps;
+            if (!(low >= 0.0f) || low > CHASSIS_SPIN_HIGH_DPS)
+                low = CHASSIS_SPIN_TRANS_LOW_DPS;
+            float band = chassis_spin_entry_band_dps;
+            if (!(band >= 0.0f) || band > 200.0f)
+                band = CHASSIS_SPIN_ENTRY_BAND_DPS;
+            const float entry_high = low + band;
+            chassis_spin_center = (low + entry_high) * 0.5f;
+            chassis_spin_mod_limit =
+                (entry_high + low > 1.0f) ? ((entry_high - low) / (entry_high + low)) : 0.09f;
+        }
+    }
+    chassis_spin_prev_trans = (uint8_t)(trans_active ? 1u : 0u);
+    chassis_spin_trans_active = (uint8_t)(trans_active ? 1u : 0u);
+
+    if (chassis_power_transient_ms > 0.0f)
+    {
+        chassis_power_transient_ms -= dt_ms;
+        if (chassis_power_transient_ms < 0.0f)
+            chassis_power_transient_ms = 0.0f;
+    }
+    if (chassis_spin_entry_ms > 0.0f)
+    {
+        chassis_spin_entry_ms -= dt_ms;
+        if (chassis_spin_entry_ms < 0.0f)
+            chassis_spin_entry_ms = 0.0f;
+    }
+
+    /* ---------------- 状态机 ----------------
+     * 变速档:平移中=TRANS;松杆沿=TRANS→RAMP(选最近端点);RAMP 到达→HOLD;
+     * HOLD 结束→PURE(从端点相位重启正弦)。匀速档不参与交接。 */
+    if (!chassis_spin_vary_active)
+    {
+        chassis_spin_flow = SPIN_FLOW_PURE;
+        chassis_spin_handoff_ms = 0.0f;
+    }
+    else if (trans_active)
+    {
+        if (chassis_spin_flow == SPIN_FLOW_RAMP || chassis_spin_flow == SPIN_FLOW_HOLD)
+        {
+            /* 交接途中又推平移:从当前交接速度重启发正弦,避免跳回旧相位 */
+            chassis_spin_reset((uint32_t)(now_ms * 1000.0f) ^ 0x9E3779B9u,
+                               chassis_spin_handoff_wz);
+        }
+        chassis_spin_flow = SPIN_FLOW_TRANS;
+        chassis_spin_handoff_ms = 0.0f;
+    }
+    else if (chassis_spin_flow == SPIN_FLOW_TRANS)
+    {
+        /* 松杆沿:按当前正弦输出选最近端点(小于 310 去 100,否则去 520) */
+        const float last = chassis_spin_last_wz;
+        chassis_spin_handoff_target =
+            (last < CHASSIS_SPIN_CRUISE_DPS) ? CHASSIS_SPIN_LOW_DPS : CHASSIS_SPIN_HIGH_DPS;
+        chassis_spin_handoff_wz = last;
+        chassis_spin_handoff_ms = 0.0f;
+        chassis_spin_flow = SPIN_FLOW_RAMP;
+    }
+
+    /* 轨迹带目标:平移段用显式 low/high(受轮速余量夹低),其余回纯自转 100~520。 */
+    float center_tgt = CHASSIS_SPIN_CRUISE_DPS;
+    float mod_tgt = CHASSIS_SPIN_MOD_LIMIT;
+    if (chassis_spin_flow == SPIN_FLOW_TRANS)
+    {
+        float low = chassis_spin_trans_low_dps;
+        float high = chassis_spin_trans_high_dps;
+        if (!(low >= 0.0f) || low > CHASSIS_SPIN_HIGH_DPS)
+            low = CHASSIS_SPIN_TRANS_LOW_DPS;
+        if (!(high >= 0.0f) || high > CHASSIS_SPIN_HIGH_DPS)
+            high = CHASSIS_SPIN_TRANS_HIGH_DPS;
+        if (high > wz_cap)
+            high = wz_cap;
+        if (low > high)
+            low = high;
+        /* 入口保持段窄带:150~180(默认),避免切入时自转和加速同时拉高轮速 */
+        if (chassis_spin_entry_ms > 0.0f && chassis_spin_vary_active)
+        {
+            float band = chassis_spin_entry_band_dps;
+            if (!(band >= 0.0f) || band > 200.0f)
+                band = CHASSIS_SPIN_ENTRY_BAND_DPS;
+            const float entry_high = low + band;
+            if (high > entry_high)
+                high = entry_high;
+            if (low > high)
+                low = high;
+        }
+        center_tgt = (low + high) * 0.5f;
+        mod_tgt = (high + low > 1.0f) ? ((high - low) / (high + low)) : 0.05f;
+    }
+    if (center_tgt < CHASSIS_SPIN_CENTER_MIN_DPS)
+        center_tgt = CHASSIS_SPIN_CENTER_MIN_DPS;
+    if (center_tgt > CHASSIS_SPIN_CRUISE_DPS)
+        center_tgt = CHASSIS_SPIN_CRUISE_DPS;
+    if (mod_tgt < 0.05f)
+        mod_tgt = 0.05f;
+    if (mod_tgt > 0.80f)
+        mod_tgt = 0.80f;
+
+    chassis_spin_mod_limit += CHASSIS_SPIN_MOD_LIMIT_LP * (mod_tgt - chassis_spin_mod_limit);
+    if (chassis_spin_mod_limit < 0.05f)
+        chassis_spin_mod_limit = 0.05f;
+    if (chassis_spin_mod_limit > 0.80f)
+        chassis_spin_mod_limit = 0.80f;
+
+    chassis_spin_center += CHASSIS_SPIN_CENTER_LP * (center_tgt - chassis_spin_center);
+    if (chassis_spin_center < CHASSIS_SPIN_CENTER_MIN_DPS)
+        chassis_spin_center = CHASSIS_SPIN_CENTER_MIN_DPS;
+    if (chassis_spin_center > CHASSIS_SPIN_CRUISE_DPS)
+        chassis_spin_center = CHASSIS_SPIN_CRUISE_DPS;
+}
 
 void chassis_init()
 {
@@ -318,6 +650,10 @@ void chassis_task()
     chassis_cmd_recv = *(chassis_ctrl_cmd_t *)can_comm_get(chassis_can_comm);
 #endif
 
+    /* 小陀螺模式平移限速:给自转留轮速余量,并降低刹车动能(DEV-20261126-25) */
+    if (chassis_cmd_recv.chassis_mode == CHASSIS_ROTATE)
+        chassis_spin_limit_translate();
+
 #if CHASSIS_SPIN_VARY_EN
     /* 小陀螺轨迹的进入沿与周期基准:只在 ROTATE 的变速档内推进。
      * 切出 ROTATE 或降到匀速档都复位,再次进入从巡航段重新起步(DEV-20261124-06/25-08)。 */
@@ -483,8 +819,18 @@ void chassis_task()
         break;
     }
     case CHASSIS_ROTATE: // 小陀螺:运行期档位选恒速/变速(键鼠 C,DEV-20261125-08)
+        /* 档位覆盖(32 位变量,优先于 C):1=强制匀速,2=强制变速,0=跟随 cmd。
+         * 手柄/台架没有 C 键时写 chassis_spin_mode_override;编译关掉变速时恒为匀速。 */
+        chassis_spin_vary_active = 0u;
 #if CHASSIS_SPIN_VARY_EN
-        if (chassis_cmd_recv.spin_vary)
+        chassis_spin_vary_active = chassis_cmd_recv.spin_vary ? 1u : 0u;
+        if (chassis_spin_mode_override == 1u)
+            chassis_spin_vary_active = 0u;
+        else if (chassis_spin_mode_override == 2u)
+            chassis_spin_vary_active = 1u;
+#endif
+#if CHASSIS_SPIN_VARY_EN
+        if (chassis_spin_vary_active)
         {
             if (!spin_active)
             {
@@ -494,25 +840,81 @@ void chassis_task()
                 spin_active = 1;
                 spin_last_ms = cmd_now_ms;
             }
-            const float spin_dt_ms = cmd_now_ms - spin_last_ms;
+            float spin_dt_ms = cmd_now_ms - spin_last_ms;
             spin_last_ms = cmd_now_ms;
-            chassis_cmd_recv.wz = chassis_spin_update(spin_dt_ms);
+            if (!(spin_dt_ms > 0.0f) || spin_dt_ms > 50.0f)
+                spin_dt_ms = 5.0f;
+
+            if (chassis_spin_flow == SPIN_FLOW_RAMP)
+            {
+                /* 向最近端点爬升;到端点后交给 HOLD,先稳一下再重启正弦 */
+                chassis_spin_handoff_wz =
+                    chassis_ramp_to(chassis_spin_handoff_wz, chassis_spin_handoff_target,
+                                    CHASSIS_SPIN_ALPHA_MAX, spin_dt_ms * 0.001f);
+                if (fabsf(chassis_spin_handoff_wz - chassis_spin_handoff_target) < 1.0f)
+                {
+                    chassis_spin_handoff_wz = chassis_spin_handoff_target;
+                    chassis_spin_flow = SPIN_FLOW_HOLD;
+                    float hold = chassis_spin_handoff_hold_ms;
+                    if (!(hold > 0.0f))
+                        hold = 0.0f;
+                    chassis_spin_handoff_ms = hold;
+                }
+                chassis_cmd_recv.wz = chassis_spin_handoff_wz;
+            }
+            else if (chassis_spin_flow == SPIN_FLOW_HOLD)
+            {
+                chassis_cmd_recv.wz = chassis_spin_handoff_target;
+                chassis_spin_handoff_ms -= spin_dt_ms;
+                if (chassis_spin_handoff_ms <= 0.0f)
+                {
+                    chassis_spin_handoff_ms = 0.0f;
+                    /* 交接结束时中心/调制必须已经是纯自转值,否则重启后的第一拍
+                     * 目标会从端点被 LP 中的旧中心拉低(端点 520 变 507 之类)。
+                     * 直接置纯值;后续 LP 目标仍是纯值,不会再动。 */
+                    chassis_spin_center = CHASSIS_SPIN_CRUISE_DPS;
+                    chassis_spin_mod_limit = CHASSIS_SPIN_MOD_LIMIT;
+                    chassis_spin_handoff((uint32_t)(cmd_now_ms * 1000.0f) ^ 0x9E3779B9u,
+                                         chassis_spin_handoff_target,
+                                         chassis_spin_handoff_target > CHASSIS_SPIN_CRUISE_DPS);
+                    chassis_spin_flow = SPIN_FLOW_PURE;
+                    /* 交接结束后总 scale 再留一段尾巴,避免电流恢复造成二次尖峰 */
+                    float tail = chassis_power_trans_tail_ms;
+                    if (!(tail > 0.0f))
+                        tail = 0.0f;
+                    if (tail > 1000.0f)
+                        tail = 1000.0f;
+                    chassis_power_transient_ms = tail;
+                }
+            }
+            else
+            {
+                chassis_cmd_recv.wz = chassis_spin_update(spin_dt_ms, chassis_spin_center,
+                                                          chassis_spin_mod_limit);
+            }
+            /* 松杆沿选端点用"正弦输出"而不是实测:实测在打滑/刹车削减时偏低 */
+            chassis_spin_last_wz = chassis_cmd_recv.wz;
         }
         else
         {
             /* 匀速档:复位进入沿,下次切回变速时从当时的实测转速重新起步 */
             spin_active = 0;
-            float wz = chassis_rotate_speed_deg_s;
-            MOTOR_LIMIT_MIN_MAX(wz, 0.0f, CHASSIS_SPIN_HIGH_DPS);
+            float wz = chassis_spin_trans_active ? chassis_rotate_speed_trans_deg_s
+                                                 : chassis_rotate_speed_deg_s;
+            MOTOR_LIMIT_MIN_MAX(wz, 0.0f, chassis_spin_wz_cap);
             chassis_cmd_recv.wz = wz;
         }
 #else
         {
-            float wz = chassis_rotate_speed_deg_s;
-            MOTOR_LIMIT_MIN_MAX(wz, 0.0f, CHASSIS_SPIN_HIGH_DPS);
+            float wz = chassis_spin_trans_active ? chassis_rotate_speed_trans_deg_s
+                                                 : chassis_rotate_speed_deg_s;
+            MOTOR_LIMIT_MIN_MAX(wz, 0.0f, chassis_spin_wz_cap);
             chassis_cmd_recv.wz = wz;
         }
 #endif
+        /* 刹车优先:平移在减速时自转先让出摩擦圆,前后刹车力不再被自转分走
+         * (DEV-20261126-25)。系数 25ms 低通,刹车结束自动恢复。 */
+        chassis_cmd_recv.wz *= chassis_spin_brake_factor();
         /* 小陀螺功率优先让给平移:总功率超限时只压自转,平移指令不动
          * (DEV-20261126-24)。缩放值由功率块每拍更新。 */
         chassis_cmd_recv.wz *= chassis_spin_power_scale;
@@ -538,11 +940,18 @@ void chassis_task()
     {
         /* 打滑漂移近似与自转速度成正比。默认按瞬时 wz 比例调度(DEV-20261124-12);
          * 若变速正弦/相位游走让偏置摆动、实际打滑跟不上,把 chassis_bias_mean_mode 写 1,
-         * 改用档位平均转速(变速 265 / 匀速 300)算固定偏置(DEV-20261126-19)。
+         * 改用档位平均转速(变速 310 / 匀速 520)算固定偏置(DEV-20261126-19)。
          * 偏置角本身可由 chassis_translate_bias_deg 在线改写,用于实车找符号/幅度。 */
         float bias_ref = chassis_cmd_recv.wz;
         if (chassis_bias_mean_mode)
-            bias_ref = chassis_cmd_recv.spin_vary ? CHASSIS_SPIN_CRUISE_DPS : CHASSIS_ROTATE_SPEED;
+            /* 用当前实际档位速度,不用固定宏:变速中心会随平移轮速余量下移
+             * (DEV-20261126-25),固定 310 会把偏置补过头。 */
+            bias_ref = (chassis_spin_vary_active
+                            ? chassis_spin_center
+                            : fminf(chassis_spin_trans_active ? chassis_rotate_speed_trans_deg_s
+                                                  : chassis_rotate_speed_deg_s,
+                                          chassis_spin_wz_cap)) *
+                       chassis_spin_brake * chassis_spin_power_scale;
         float bias_deg = chassis_translate_bias_deg * (bias_ref / CHASSIS_ROTATE_SPEED);
         MOTOR_LIMIT_MIN_MAX(bias_deg, -30.0f, 30.0f);
         const float bias_rad = bias_deg * FW_DEG_TO_RAD;
@@ -589,12 +998,38 @@ void chassis_task()
                     }
                 }
             }
-            const float vx_accel = (chassis_vx_ramp_accel > 0.0f) ? chassis_vx_ramp_accel : CHASSIS_VX_RAMP;
-            const float vy_accel = (chassis_vy_ramp_accel > 0.0f) ? chassis_vy_ramp_accel : CHASSIS_VY_RAMP;
+            /* 加速/减速分段(DEV-20261127):减速(松杆收油或反向扳杆)用独立更大的
+             * 减速度/jerk 缩短停车距离;加速段保持原参数,避免起步变猛/打滑。
+             * 判据:cur*target<0 覆盖反向;|target|<|cur| 覆盖松杆。
+             * 起步时 cur=0,两式都不成立,仍走加速段参数。 */
+            const uint8_t vx_braking =
+                (chassis_vx_ramp * chassis_cmd_recv.vx < 0.0f) ||
+                (fabsf(chassis_cmd_recv.vx) < fabsf(chassis_vx_ramp));
+            const uint8_t vy_braking =
+                (chassis_vy_ramp * chassis_cmd_recv.vy < 0.0f) ||
+                (fabsf(chassis_cmd_recv.vy) < fabsf(chassis_vy_ramp));
+            float vx_accel = (chassis_vx_ramp_accel > 0.0f) ? chassis_vx_ramp_accel : CHASSIS_VX_RAMP;
+            float vy_accel = (chassis_vy_ramp_accel > 0.0f) ? chassis_vy_ramp_accel : CHASSIS_VY_RAMP;
+            float vx_jerk = (chassis_vx_jerk > 0.0f) ? chassis_vx_jerk : CHASSIS_VX_JERK;
+            float vy_jerk = (chassis_vy_jerk > 0.0f) ? chassis_vy_jerk : CHASSIS_VY_JERK;
+            if (vx_braking)
+            {
+                if (chassis_vx_brake_ramp > 0.0f)
+                    vx_accel = chassis_vx_brake_ramp;
+                if (chassis_vx_brake_jerk > 0.0f)
+                    vx_jerk = chassis_vx_brake_jerk;
+            }
+            if (vy_braking)
+            {
+                if (chassis_vy_brake_ramp > 0.0f)
+                    vy_accel = chassis_vy_brake_ramp;
+                if (chassis_vy_brake_jerk > 0.0f)
+                    vy_jerk = chassis_vy_brake_jerk;
+            }
             chassis_vx_ramp = chassis_ramp_to_jerk(chassis_vx_ramp, chassis_cmd_recv.vx, vx_accel,
-                                                   chassis_vx_jerk, dt_sec, &chassis_vx_accel_state);
+                                                   vx_jerk, dt_sec, &chassis_vx_accel_state);
             chassis_vy_ramp = chassis_ramp_to_jerk(chassis_vy_ramp, chassis_cmd_recv.vy, vy_accel,
-                                                   chassis_vy_jerk, dt_sec, &chassis_vy_accel_state);
+                                                   vy_jerk, dt_sec, &chassis_vy_accel_state);
             /* 注:wz 刻意不加斜坡。2026-11-16 试过"只对修正量限加速、前馈直通"(1200°/s²),
              * 实测反摆均值 +22.2°/s(无斜坡 +11.8),斜坡拖慢刹车、底盘多转、误差更大 → 否决。 */
         }
@@ -631,9 +1066,18 @@ void chassis_task()
     {
         float bias_ref = chassis_cmd_recv.wz;
         if (chassis_bias_mean_mode)
-            bias_ref = chassis_cmd_recv.spin_vary ? CHASSIS_SPIN_CRUISE_DPS : CHASSIS_ROTATE_SPEED;
+            bias_ref = (chassis_spin_vary_active
+                            ? chassis_spin_center
+                            : fminf(chassis_spin_trans_active ? chassis_rotate_speed_trans_deg_s
+                                                  : chassis_rotate_speed_deg_s,
+                                          chassis_spin_wz_cap)) *
+                       chassis_spin_brake * chassis_spin_power_scale;
         chassis_vy += chassis_translate_bias_mm_s_per_dps * bias_ref;
     }
+
+    /* 用本拍最终平移量(投影+偏置后)重算下一拍自转轮速余量:
+     * 平移占掉的轮速从自转预算里扣,轨迹中心下移而不是被 6000rpm 限幅削顶。 */
+    chassis_spin_headroom_update(cmd_now_ms);
 
     chassis_mecanum_calculate();
 
@@ -644,6 +1088,7 @@ void chassis_task()
      * 衰减系数直接乘电机输出电流,二次方程精确解(304 口径)。 */
     float power_scale = 1.0f;
     float power_p_pred = 0.0f;
+    float power_p_post = 0.0f;
     float power_limit_w = 0.0f;
 #if CHASSIS_POWER_CTRL_EN
     {
@@ -668,8 +1113,9 @@ void chassis_task()
             if (limit_w > CHASSIS_POWER_LIMIT_MAX)
                 limit_w = CHASSIS_POWER_LIMIT_MAX;
         }
-        /* 控制余量:实测超调约 10W,目标再压 5W(DEV-20261125-10)。
-         * 留 20W 下限,避免配置/裁判异常时把底盘限到几乎没力。 */
+        /* 控制余量:DEV-20261126-26 按用户要求 10→5W,控制目标 85W。
+         * 注意 DEV-20261126-16 实测超调约 10W,模型未标定时实际可能到 95W;
+         * 比赛前未重拟合建议回 10W。留 20W 下限,避免配置/裁判异常时把底盘限到几乎没力。 */
         limit_w -= CHASSIS_POWER_MARGIN_W;
         if (limit_w < 20.0f)
             limit_w = 20.0f;
@@ -693,27 +1139,32 @@ void chassis_task()
             }
         }
         power_limit_w = limit_w;
-        power_scale = chassis_power_scale(i_cmd, w_dps, limit_w, &power_p_pred);
-        /* 小陀螺模式:功率只压自转,平移保持与跟随同速(DEV-20261126-24)。
-         * 总功率 scale 作为自转衰减目标,慢低通;power_scale 置 1,不再压四轮电流,
-         * 平移的 wheel 分量与速度环电流不受影响。 */
-        if (chassis_cmd_recv.chassis_mode == CHASSIS_ROTATE)
-        {
-            chassis_spin_power_scale +=
-                CHASSIS_SPIN_POWER_LP * (power_scale - chassis_spin_power_scale);
-            if (chassis_spin_power_scale > 1.0f)
-                chassis_spin_power_scale = 1.0f;
-            if (chassis_spin_power_scale < 0.0f)
-                chassis_spin_power_scale = 0.0f;
-            power_scale = 1.0f; // 平移/整体不压
-        }
-        else
-        {
-            chassis_spin_power_scale = 1.0f;
-        }
+        power_scale = chassis_power_scale(i_cmd, w_dps, limit_w, chassis_power_min_scale,
+                                          &power_p_pred, &power_p_post);
+
+        /* DEV-20261126-33:总 power scale 作用于电动轮电流,不再有 ROTATE
+         * 稳态"平移免疫 + ss 只压自转"的分叉。floor 0.20 在 power 模块内应用;
+         * DEV-20261127-200745:制动轮(i 与 ω 反号)退出预算,output_scale 保持 1.0,
+         * 由 chassis_limit_output 逐轮判定。pt 只用于积分压限/入口保持计时。 */
+        chassis_spin_power_scale = 1.0f;
+        chassis_power_transient_active =
+            (uint8_t)((chassis_spin_flow == SPIN_FLOW_RAMP ||
+                       chassis_spin_flow == SPIN_FLOW_HOLD) ||
+                      (chassis_power_transient_ms > 0.0f));
     }
 #endif
-    chassis_limit_output(power_scale);
+    /* 瞬态窗口(切入/松杆交接/尾巴)压速度环积分:P 项保留,I 项降到 25%,
+     * 削掉瞬态里由平移段积累的那部分电流(DEV-20261126-28/31)。 */
+    float integral_scale = 1.0f;
+    if (chassis_power_transient_active)
+    {
+        integral_scale = chassis_spin_handoff_integral_scale;
+        if (!(integral_scale >= 0.0f))
+            integral_scale = 1.0f;
+        if (integral_scale > 1.0f)
+            integral_scale = 1.0f;
+    }
+    chassis_limit_output(power_scale, integral_scale);
 
     chassis_estimate_speed();
 
@@ -728,9 +1179,14 @@ void chassis_task()
     /* 标定日志(P1 速度估计验证用;P2 再加 scale 列):
      * gz = IMU 世界系 yaw 角速度。**注意它不能当底盘 wz 用**——小陀螺瞄准保持时云台世界系静止,
      * 装在云台上的 IMU 读到的就是 0;只有"不跟随 + 不自转"时 gz 才等于底盘转速。
-     * 自转工况的真实转速靠**计时法**(转 10 圈取平均)独立测量,见 .Doc/detail/底盘优化计划.md V3。
+     * 自转工况的真实转速靠**计时法**(转 10 圈取平均)独立测量,见 .Doc/robots/infantry/design/底盘优化计划.md V3。
      * p = 底盘功率(0x0202, W),be = 缓冲能量(J):功率控制标定与"到底会不会掉缓冲"的判据。 */
-    if (++chassis_calib_cnt >= 100) // 200Hz / 100 = 0.5s
+    uint16_t calib_div = chassis_calib_log_div;
+    if (calib_div < 1u)
+        calib_div = 1u;
+    if (calib_div > 1000u)
+        calib_div = 1000u;
+    if (++chassis_calib_cnt >= calib_div) // 默认 200Hz/100 = 2Hz
     {
         char c_vx[16], c_vy[16], c_wz[16], c_gz[16], c_be[16], c_p[16], c_off[16];
         chassis_calib_cnt = 0;
@@ -760,7 +1216,8 @@ void chassis_task()
         {
             char c_i0[16], c_i1[16], c_i2[16], c_i3[16];
             char c_w0[16], c_w1[16], c_w2[16], c_w3[16];
-            char c_pp[16], c_ss[16], c_ll[16], c_sps[16];
+            char c_pp[16], c_po[16], c_ss[16], c_ll[16], c_sps[16], c_ct[16], c_bg[16], c_md[16],
+                c_hd[16];
             log_float_to_str(c_i0, motor_lf->current_cmd);
             log_float_to_str(c_i1, motor_rf->current_cmd);
             log_float_to_str(c_i2, motor_lb->current_cmd);
@@ -770,12 +1227,21 @@ void chassis_task()
             log_float_to_str(c_w2, motor_lb->measure.speed_aps);
             log_float_to_str(c_w3, motor_rb->measure.speed_aps);
             log_float_to_str(c_pp, power_p_pred);
+            log_float_to_str(c_po, power_p_post);
             log_float_to_str(c_ss, power_scale);
             log_float_to_str(c_ll, power_limit_w);
             log_float_to_str(c_sps, chassis_spin_power_scale);
+            log_float_to_str(c_ct, chassis_spin_center);
+            log_float_to_str(c_bg, chassis_spin_brake);
+            log_float_to_str(c_md, chassis_spin_mod_limit);
+            log_float_to_str(c_hd, chassis_spin_handoff_ms);
             LOG_INFO("[pwri] i=%s,%s,%s,%s w=%s,%s,%s,%s", c_i0, c_i1, c_i2, c_i3, c_w0, c_w1,
                      c_w2, c_w3);
-            LOG_INFO("[pwr] p=%s s=%s lim=%s be=%s ss=%s", c_pp, c_ss, c_ll, c_be, c_sps);
+            LOG_INFO(
+                "[pwr] p=%s s=%s po=%s lim=%s be=%s ss=%s ct=%s bg=%s md=%s hd=%s sv=%d hf=%d pt=%d",
+                c_pp, c_ss, c_po, c_ll, c_be, c_sps, c_ct, c_bg, c_md, c_hd,
+                (int)chassis_spin_vary_active, (int)chassis_spin_flow,
+                (int)chassis_power_transient_active);
         }
     }
 #endif

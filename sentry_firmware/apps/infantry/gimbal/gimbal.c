@@ -565,7 +565,7 @@ void gimbal_task()
                   pitch_motor->motor_controller.speed_PID.Output,
                   gimbal_imu_data->Gyro[0] * FW_RAD_TO_DEG, (uint8_t)gimbal_cmd_recv.gimbal_mode);
     /* 注:extra 在 P1 阶段保持 Gyro[0]——B7 敲击辨识要看振动通道(此时 out/cur 全为 0);
-     * P2 重力标定前再切成输出电流码(见 .Doc/detail/pitch轴优化计划.md P0-2)。 */
+     * P2 重力标定前再切成输出电流码(见 .Doc/robots/infantry/design/pitch轴优化计划.md P0-2)。 */
 #if PITCH_FF_CALIB_LOG
     /* 标定日志:200Hz/100 = 0.5s 一行,角度与稳态电流成对,供 P2 拟合 A/φ/B */
     if (++pitch_calib_cnt >= 100)

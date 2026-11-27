@@ -12,14 +12,17 @@
 #include <stdint.h>
 #include "robot_def.h" /* chassis_ctrl_cmd_t / shoot_ctrl_cmd_t / attitude_t / gimbal_mode_e */
 
-/* cmd → gimbal:本车哨兵大 yaw 自主锁机械正前方;pitch 是相对解锁点的命令增量;
- * 小 yaw 接收目标角速度并在 gimbal 内积分为有限位的位置目标。 */
+/* cmd → gimbal：pitch为相对解锁角增量，小yaw为独立速率；大yaw由底盘模式选择机械回正/纯速度补偿。
+ * AUTO_AIM 下 big_yaw 改为世界 yaw 目标、pitch_abs 改为世界 pitch 目标,aim_valid=1。 */
 typedef struct
 {
-    float big_yaw;              // 保留字段:VCP/后续自主目标,当前大 yaw 固定回正不读取
-    float pitch;                // pitch 相对命令,deg,解锁时归 0
-    float small_yaw_rate_deg_s; // 小 yaw 目标变化率,deg/s
-    gimbal_mode_e mode;         // ZERO_FORCE / GYRO / AUTO_AIM
+    float big_yaw;       // AUTO_AIM: 世界 yaw 目标,deg; 手动: 兼容字段
+    float pitch;         // 解锁点相对电机轴角指令,deg
+    float pitch_abs;     // AUTO_AIM: 枪管世界 pitch 目标,deg
+    float small_yaw_rate_deg_s; // independent relative-yaw command, deg/s
+    float small_yaw_rel; // 预留:操作手直接给相对精瞄目标,当前恒 0
+    gimbal_mode_e mode;  // ZERO_FORCE / GYRO / AUTO_AIM
+    uint8_t aim_valid;   // 1=本拍自瞄目标有效(gimbal 只在该位为 1 时用 AUTO_AIM)
 } sentry_gimbal_cmd_t;
 
 /* gimbal → cmd:三轴反馈与 IMU 快照 */
@@ -29,16 +32,18 @@ typedef struct
     float big_yaw_world_deg;   // 大 yaw 世界角,deg
     float big_yaw_rel_deg;     // 大 yaw 相对底盘机械零位,deg(±180)
     float small_yaw_rel_deg;   // 小 yaw 相对机械中位,deg
-    float pitch_deg;           // pitch 相对本次机械参考位,deg
+    float small_yaw_target_deg;// 小 yaw 分配后的目标角,deg
+    float pitch_deg;           // pitch 电机输出轴角,deg
+    float pitch_abs_deg;       // 枪管世界 pitch 观察值,deg
     float big_yaw_torque_nm;   // 大 yaw 当前力矩指令,N·m
     uint8_t big_yaw_state;     // DM 状态位(dm_motor_err_state_e)
     uint8_t pitch_state;       // DM 状态位
-    uint8_t big_yaw_online;    // 1=DM 反馈新鲜
-    uint8_t small_yaw_online;  // 1=GM6020 反馈新鲜
-    uint8_t pitch_online;      // 1=pitch DM 反馈新鲜
-    uint64_t big_yaw_sample_us; // 大 yaw CAN 反馈进入 MCU 的采样时间
-    uint64_t small_yaw_sample_us; // 小 yaw 快照时间,MCU us
-    uint64_t pitch_sample_us;     // pitch CAN 反馈进入 MCU 的采样时间
+    uint8_t big_yaw_online;       // 1=DM 反馈新鲜
+    uint8_t pitch_online;         // 1=pitch DM 反馈新鲜
+    uint8_t small_yaw_online;     // 1=小 yaw 反馈在线
+    uint64_t big_yaw_sample_us;   // 大 yaw CAN 反馈进入 MCU 的采样时间,us
+    uint64_t small_yaw_sample_us; // 小 yaw 反馈快照时间,MCU us
+    uint64_t pitch_sample_us;     // pitch CAN 反馈进入 MCU 的采样时间,us
 } sentry_gimbal_feed_t;
 
 /* chassis → cmd:轮速逆解估计与模式快照 */

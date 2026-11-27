@@ -5,7 +5,7 @@
  * @author  小猫大王
 * @note    2026-11-20 从 config/infantry_2026/config.h 机械拆分而来,**宏名与数值零改动**;
 *          伞头统一 include,业务代码只包含伞头,不直接包含本文件。
-* @note    每个参数只保留"当前值 + 一句话依据";判据与踩坑见 .Doc/spec/本车调参结论.md。
+* @note    每个参数只保留"当前值 + 一句话依据";判据与踩坑见 .Doc/robots/infantry/params/调参结论.md。
  */
 #pragma once
 

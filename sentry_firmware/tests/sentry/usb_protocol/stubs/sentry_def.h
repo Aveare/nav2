@@ -1,0 +1,22 @@
+/**
+ * @file    sentry_def.h
+ * @brief   哨兵 USB 双协议主机测试大 yaw 反馈桩
+ * @layer   TESTS
+ * @author  小猫大王
+ */
+#pragma once
+
+#include <stdint.h>
+
+typedef struct
+{
+    float big_yaw_rel_deg;
+    float small_yaw_rel_deg;
+    float pitch_deg;
+    uint64_t big_yaw_sample_us;
+    uint64_t small_yaw_sample_us;
+    uint64_t pitch_sample_us;
+    uint8_t big_yaw_online;
+    uint8_t small_yaw_online;
+    uint8_t pitch_online;
+} sentry_gimbal_feed_t;

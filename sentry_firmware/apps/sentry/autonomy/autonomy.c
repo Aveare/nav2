@@ -6,13 +6,16 @@
  * @note    USB ISR 只复制数据;200Hz 应用任务解析,不产生云台/发射命令。
  */
 #include "autonomy.h"
-#include "ax650_usb.h"
 #include "config.h"
 #include "kernel.h"
 #include "msg.h"
 #include "nav_protocol.h"
 #include "sentry_def.h"
 #include "usb_port.h"
+#if AX650_USB_ENABLE
+#include "referee_task.h"
+#include "vision_link.h"
+#endif
 
 #include <string.h>
 
@@ -31,16 +34,14 @@ static nav_parser_t parser;
 static sentry_auto_cmd_t auto_cmd;
 static uint32_t auto_last_ms, auto_sequence;
 static uint8_t has_command;
-static uint8_t tx_buffer[64u]; // [协议] USB FS 单包，容纳 61 B 的 RMCV 0x1022
+static uint8_t tx_buffer[SENTRY_NAV_PROTOCOL_FRAME_SIZE];
+#if AX650_USB_ENABLE
+static uint8_t pose_buffer[AX650_FULL_POSE_FRAME_SIZE];
+#endif
 static msg_sub_t gimbal_feed_sub;
 static sentry_gimbal_feed_t gimbal_feed;
 static uint32_t feedback_last_ms, feedback_sequence;
 static uint64_t feedback_last_sample;
-
-_Static_assert(AX650_FULL_POSE_FRAME_SIZE <= sizeof(tx_buffer),
-               "0x1022 must fit in one USB FS packet");
-_Static_assert(SENTRY_NAV_PROTOCOL_FRAME_SIZE <= sizeof(tx_buffer),
-               "navigation frame exceeds shared USB TX buffer");
 
 static void autonomy_usb_receive(uint16_t length)
 {
@@ -68,9 +69,11 @@ void autonomy_init(void)
     memset(&gimbal_feed, 0, sizeof(gimbal_feed));
     has_command = 0u;
     rx_head = rx_tail = 0u;
-    ax650_usb_init();
     usb_rx = usb_init((usb_init_config_t){.tx_cbk = NULL, .rx_cbk = autonomy_usb_receive});
     gimbal_feed_sub = msg_sub("gimbal_feed", sizeof(sentry_gimbal_feed_t));
+#if AX650_USB_ENABLE
+    vision_link_init();
+#endif
 }
 
 void autonomy_task(void)
@@ -88,9 +91,6 @@ void autonomy_task(void)
         rx_tail = (uint8_t)((rx_tail + 1u) % 8u);
         kernel_exit_critical(saved);
 
-#if AX650_USB_ENABLE
-        ax650_usb_feed(slot.bytes, slot.length, slot.received_ms);
-#endif
         for (unsigned i = 0; i < slot.length; ++i)
         {
             nav_frame_t frame;
@@ -128,6 +128,10 @@ void autonomy_task(void)
                 auto_cmd.wz = auto_cmd.valid ? frame.value[2] * 57.295779513f : 0.0f;
             }
         }
+#if AX650_USB_ENABLE
+        /* 同一段字节同时喂视觉解析器:两种协议按帧头各自重同步,互不影响。 */
+        vision_link_feed(slot.bytes, slot.length, slot.received_ms);
+#endif
     }
 
     if (kernel_tick_ms() - auto_last_ms > SENTRY_AUTONOMY_COMMAND_TIMEOUT_MS)
@@ -135,23 +139,6 @@ void autonomy_task(void)
 
     (void)msg_recv(gimbal_feed_sub, &gimbal_feed);
     const uint32_t now = kernel_tick_ms();
-    uint16_t pose_flags = AX650_POSE_CALIBRATED_SMALL_YAW;
-    if (gimbal_feed.big_yaw_online)
-        pose_flags |= AX650_POSE_VALID_BIG_YAW;
-    if (gimbal_feed.small_yaw_online)
-        pose_flags |= AX650_POSE_VALID_SMALL_YAW;
-    if (gimbal_feed.pitch_online)
-        pose_flags |= AX650_POSE_VALID_PITCH;
-    if (gimbal_feed.big_yaw_online && gimbal_feed.small_yaw_online &&
-        gimbal_feed.pitch_online)
-        pose_flags |= AX650_POSE_GIMBAL_ONLINE;
-    ax650_usb_update_gimbal(
-        gimbal_feed.big_yaw_rel_deg * 0.01745329252f,
-        gimbal_feed.small_yaw_rel_deg * 0.01745329252f,
-        gimbal_feed.pitch_deg * 0.01745329252f,
-        (uint32_t)(gimbal_feed.big_yaw_sample_us / 1000u),
-        (uint32_t)(gimbal_feed.small_yaw_sample_us / 1000u),
-        (uint32_t)(gimbal_feed.pitch_sample_us / 1000u), pose_flags);
     if (now - feedback_last_ms >= SENTRY_NAVIGATION_FEEDBACK_PERIOD_MS &&
         gimbal_feed.big_yaw_sample_us != feedback_last_sample)
     {
@@ -169,12 +156,41 @@ void autonomy_task(void)
             ++feedback_sequence;
         }
     }
+
 #if AX650_USB_ENABLE
-    if (!usb_is_transmitting())
+    /* 0x1022 完整枪管姿态上行:先同步三轴云台快照与裁判数据,再按周期发送;USB 忙则顺延。 */
     {
-        const size_t size = ax650_usb_prepare_pose(tx_buffer, sizeof(tx_buffer), now);
-        if (size != 0u)
-            (void)usb_try_transmit(tx_buffer, (uint16_t)size);
+        uint16_t valid_flags = 0u;
+        if (gimbal_feed.big_yaw_online)
+            valid_flags |= AX650_POSE_VALID_BIG_YAW;
+        if (gimbal_feed.small_yaw_online)
+            valid_flags |= AX650_POSE_VALID_SMALL_YAW | AX650_POSE_CALIBRATED_SMALL_YAW;
+        if (gimbal_feed.pitch_online)
+            valid_flags |= AX650_POSE_VALID_PITCH | AX650_POSE_CALIBRATED_PITCH;
+        if (gimbal_feed.big_yaw_online && gimbal_feed.small_yaw_online && gimbal_feed.pitch_online)
+            valid_flags |= AX650_POSE_GIMBAL_ONLINE;
+        vision_link_update_gimbal(
+            gimbal_feed.big_yaw_rel_deg * 0.01745329252f,
+            gimbal_feed.small_yaw_rel_deg * 0.01745329252f,
+            gimbal_feed.pitch_deg * 0.01745329252f,
+            (uint32_t)(gimbal_feed.big_yaw_sample_us / 1000u),
+            (uint32_t)(gimbal_feed.small_yaw_sample_us / 1000u),
+            (uint32_t)(gimbal_feed.pitch_sample_us / 1000u),
+            valid_flags);
+
+        referee_info_t *referee = referee_get_info();
+        if (referee != NULL && referee->init_flag)
+        {
+            vision_link_set_robot_id(referee->GameRobotState.robot_id);
+            vision_link_set_projectile_speed(referee->ShootData.bullet_speed);
+        }
+        if (!usb_is_transmitting())
+        {
+            const size_t pose_len =
+                vision_link_build_full_pose(pose_buffer, sizeof(pose_buffer), now);
+            if (pose_len != 0u)
+                (void)usb_try_transmit(pose_buffer, (uint16_t)pose_len);
+        }
     }
 #endif
 }

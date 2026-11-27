@@ -1,10 +1,10 @@
 /**
  * @file    assembly.c
- * @brief   哨兵兵种装配表:autonomy → cmd → gimbal → shoot → chassis 固定顺序
+ * @brief   哨兵兵种装配表:cmd → gimbal → shoot → chassis 固定顺序
  * @layer   APP
  * @author  小猫大王
  * @note    与步兵装配表同构;哨兵差异全部收敛在 apps/sentry/ 与 config/sentry_2026/。
- * @note    autonomy 先解析 USB,cmd 再做遥控与安全仲裁。
+ * @note    自主决策本批只保留接口桩(autonomy),不产生控制行为。
  */
 #include "app_profile.h"
 #include "profile.h"
@@ -26,11 +26,11 @@ static void sentry_init(void)
 
 static void sentry_task(void)
 {
-    autonomy_task();
     cmd_task();
     gimbal_task();
     shoot_task();
     chassis_task();
+    autonomy_task();
 }
 
 const app_profile_t g_app_profile = {

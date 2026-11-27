@@ -27,4 +27,7 @@ float cmd_get_ax650_raw_yaw(void);
 /** @brief 当前战术射速档位(0=ECO 1=NORMAL 2=BURST) */
 uint8_t cmd_get_fire_tier(void);
 
+/** @brief 自瞄是否选中(左中挡或键鼠 Shift;不含目标有效性) */
+uint8_t cmd_get_auto_aim_active(void);
+
 #endif // SENTRY_ROBOT_CMD_H

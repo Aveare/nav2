@@ -26,7 +26,6 @@
 | `control/quaternion_ekf` | ACTIVE | 四元数 EKF 姿态 | `ins_task` 调用 |
 | `crc/crc8`、`crc/crc16` | ACTIVE | 通用 CRC | 裁判/协议校验 |
 | `math/user_lib` | ACTIVE | 矩阵/向量/滤波工具 | 控制与 EKF |
-| `navigation/nav_protocol` | ACTIVE | NV v1 USB 导航帧编解码、CRC 与滑动重同步 | Sentry `autonomy` 调用；默认只通信不驱动 |
 | `imu/bmi088_*` | ACTIVE | BMI088 驱动与中间件 | SPI/片选/加热器经 `ports/stm32f4/imu_port` |
 | `imu/ins_task` | ACTIVE | 姿态解算任务 | 1kHz;不直接访问 HAL 句柄 |
 | `remote/remote_control` | ACTIVE | DBUS/SBUS 解析与失联 | USART3 |
@@ -36,6 +35,7 @@
 | `ax650/ax650_pose`、`ax650_uart1` | ACTIVE | 自瞄姿态上报与 0x0503 下行 | USART1 宏二选一；受 `AX650_UART1_ENABLE` 控制，调试时与 `CHASSIS_VOFA_UART1_ENABLE` 互斥 |
 | `calib` | ACTIVE | 零位 Flash 标定记录 | 与 `gimbal_recenter` 配合 |
 | `daemon` | ACTIVE | 模块在线检测 | 心跳监督 |
+| `navigation/nav_protocol` | ACTIVE(哨兵) | NV v1 USB 导航帧编解码、CRC16/MODBUS 与滑动重同步 | 哨兵 `autonomy` 调用；`SENTRY_AUTONOMY_ENABLE 0` 时只通信不驱动底盘 |
 | `alarm/buzzer` | ACTIVE | 蜂鸣器/开机播报 | PWM |
 | `can_comm` | DORMANT | 双板可靠帧 | 仅双板；当前 `ONE_BOARD`，profile 守卫 `#error` |
 | `super_cap` | OPTIONAL | 超级电容 | 硬件未装；接入时在 profile 注册并加功率策略 |

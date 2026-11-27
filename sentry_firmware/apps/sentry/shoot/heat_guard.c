@@ -13,6 +13,10 @@
 #include "log_port.h"
 #include <string.h>
 
+/* 裁判热量按 100 ms 阶梯结算:本地冷却必须同节拍扣,连续积分会在每周期开头系统性低估。 */
+#define SENTRY_HEAT_TICK_MS 100.0f
+#define SENTRY_HEAT_TICK_STEP 0.1f
+
 typedef struct
 {
     uint8_t initialized;
@@ -25,6 +29,7 @@ typedef struct
     float q_limit;
     float cooling;
     float last_ms;
+    float cool_acc_ms;
     uint8_t down_count;
     float single_last_ms;
     heat_guard_state_e state;
@@ -78,13 +83,18 @@ void heat_guard_update(void)
         heat_guard_init();
 
     const float now_ms = dwt_get_timeline_ms();
-    float dt_s = (now_ms - heat.last_ms) * 0.001f;
+    float dt_ms = now_ms - heat.last_ms;
     heat.last_ms = now_ms;
-    if (dt_s < 0.0f || dt_s > 0.5f)
-        dt_s = 0.005f;
+    if (dt_ms < 0.0f || dt_ms > 500.0f)
+        dt_ms = 5.0f;
 
-    /* 1. 本拍冷却 */
-    heat.q -= heat.cooling * dt_s;
+    /* 1. 本拍冷却:按 100 ms 阶梯扣,与裁判结算节拍一致 */
+    heat.cool_acc_ms += dt_ms;
+    while (heat.cool_acc_ms >= SENTRY_HEAT_TICK_MS)
+    {
+        heat.cool_acc_ms -= SENTRY_HEAT_TICK_MS;
+        heat.q -= heat.cooling * SENTRY_HEAT_TICK_STEP;
+    }
     if (heat.q < 0.0f)
         heat.q = 0.0f;
 

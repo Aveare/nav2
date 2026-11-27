@@ -18,8 +18,6 @@
 #include "log_port.h"
 #include "config.h" // 参数来自 config,不依赖 application 层
 #include "ax650_uart1.h"
-#include "ax650_usb.h"
-#include "kernel.h"
 
 static ins_state_t ins_state;
 static ins_imu_param_t ins_imu_param;
@@ -171,9 +169,6 @@ void ins_task(void)
         memcpy(ins_state.q, ekf_ins.q, sizeof(ekf_ins.q));
 #if AX650_UART1_ENABLE
         ax650_uart1_send_quaternion(ins_state.q);
-#endif
-#if AX650_USB_ENABLE
-        ax650_usb_update_quaternion(ins_state.q, kernel_tick_ms());
 #endif
 
         // 机体系基向量转换到导航坐标系，本例选取惯性系为导航系

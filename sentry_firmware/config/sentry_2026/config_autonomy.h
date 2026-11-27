@@ -7,7 +7,7 @@
  */
 #pragma once
 
-#define SENTRY_AUTONOMY_ENABLE 0 /* [安全] 1=双拨杆中位时允许导航接管;联调保持 0 */
+#define SENTRY_AUTONOMY_ENABLE 1 /* [安全] 1=双拨杆中位且右摇杆回中时允许导航接管 */
 #define SENTRY_NAVIGATION_FEEDBACK_PERIOD_MS 20u /* [配置] 大 yaw 新鲜 CAN 角度回传周期,ms */
 #define SENTRY_NAVIGATION_ACCEL_MM_S2 350.0f /* [待实测] 导航专用平移斜坡 */
 #define SENTRY_NAVIGATION_MAX_SPEED_M_S 0.35f /* [待实测] base_link 每轴导航限速 */

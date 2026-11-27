@@ -5,7 +5,7 @@
  * @author  小猫大王
 * @note    2026-11-20 从 config/infantry_2026/config.h 机械拆分而来,**宏名与数值零改动**;
 *          伞头统一 include,业务代码只包含伞头,不直接包含本文件。
-* @note    每个参数只保留"当前值 + 一句话依据";判据与踩坑见 .Doc/spec/本车调参结论.md。
+* @note    每个参数只保留"当前值 + 一句话依据";判据与踩坑见 .Doc/robots/infantry/params/调参结论.md。
  */
 #pragma once
 
@@ -15,7 +15,7 @@
  * 0=不初始化、不发送姿态、不注册串口。
  * 2026-11-22 恢复 AX650 自瞄链路(用户裁决，批间隙合入，DEV-20261122-18)；
  * 同一物理串口上的底盘 VOFA 必须保持 0(ax650.h #error 防呆)。
- * 细节与失效/标法/风险 → .Doc/spec/参数证据表.md「B1b 迁移增补」同名节 */
+ * 细节与失效/标法/风险 → .Doc/robots/infantry/params/参数证据表.md「B1b 迁移增补」同名节 */
 
 #ifndef AX650_UART1_RX_ENABLE
 #define AX650_UART1_RX_ENABLE 1

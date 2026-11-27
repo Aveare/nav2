@@ -3,7 +3,8 @@
  * @brief   哨兵双 yaw 分配纯逻辑主机测试
  * @layer   TESTS
  * @author  小猫大王
- * @note    验证:小误差双 yaw 分配、禁用小 yaw 后大 yaw 独占、跨 ±180 正确折叠。
+ * @note    验证:小误差双 yaw 分配、禁用小 yaw 后大 yaw 独占、跨 ±180 正确折叠、
+ *          以及自瞄慢配平 split(大 yaw 快环 + 小 yaw 慢配平)。
  */
 #include <stdio.h>
 #include <math.h>
@@ -55,6 +56,21 @@ int main(void)
     sentry_gimbal_allocate(30.0f, 20.0f, 0.0f, &small, &big);
     expect_near("small disabled", small, 0.0f, 1e-3f);
     expect_near("big takes full target", big, 30.0f, 1e-3f);
+
+    /* 7. 自瞄慢配平:小 yaw 只拿给定配平量,大 yaw 承担世界目标剩余 */
+    sentry_gimbal_split(30.0f, 20.0f, 10.0f, 60.0f, &small, &big);
+    expect_near("split small", small, 10.0f, 1e-3f);
+    expect_near("split big", big, 20.0f, 1e-3f);
+
+    /* 8. 配平超限:小 yaw 夹到 60,大 yaw 承担 -30 */
+    sentry_gimbal_split(30.0f, 20.0f, 100.0f, 60.0f, &small, &big);
+    expect_near("split small clamp", small, 60.0f, 1e-3f);
+    expect_near("split big remainder", big, -30.0f, 1e-3f);
+
+    /* 9. 小 yaw 失能:split 把世界目标全部交给大 yaw */
+    sentry_gimbal_split(30.0f, 20.0f, 0.0f, 0.0f, &small, &big);
+    expect_near("split small disabled", small, 0.0f, 1e-3f);
+    expect_near("split big full", big, 30.0f, 1e-3f);
 
     if (failures)
     {

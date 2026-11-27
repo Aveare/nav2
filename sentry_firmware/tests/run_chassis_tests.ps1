@@ -5,7 +5,7 @@ try {
     # CMD authority arbitration test
     $taskIncludeDirs = @('tests/native_stubs', 'config/infantry_2026', 'apps/common/app', 'apps/infantry/app', 'apps/infantry/cmd', 'apps/infantry/chassis',
                          'apps/infantry/gimbal', 'components/remote', 'components/motor/core', 'components/motor/dji', 'components/motor/dm', 'components/motor/ht', 'components/motor/servo',
-                         'framework', 'framework/msg', 'ports/stm32f4', 'framework/kernel', 'framework/err', 'components/control', 'components/crc', 'components/math', 'components/alarm', 'components/daemon', 'framework/diag')
+                         'framework', 'framework/msg', 'ports/stm32f4', 'framework/kernel', 'framework/err', 'components/control', 'components/crc', 'components/ax650', 'components/math', 'components/alarm', 'components/daemon', 'framework/diag')
     $taskIncludes = $taskIncludeDirs | ForEach-Object { '-I' + $_ }
     $taskSources = @('tests/chassis_remote_test.c', 'tests/native_stubs/gimbal_stub.c',
                      'apps/infantry/cmd/robot_cmd.c', 'apps/infantry/cmd/cmd_authority.c',

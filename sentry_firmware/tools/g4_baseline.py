@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """G4 自基线执行器(自主研发框架升级总方案 §5-G4 / §13,B0a ⑤ 交付)。
 
-与 skill 的 audit_baseline.py 的关系:红旗扫描规则镜像之(HANDLE_PATTERN/
+与已退役的 audit_baseline.py 的关系:红旗扫描规则镜像其口径(历史来源;HANDLE_PATTERN/
 WHILE_ONE_PATTERN/作用域),但基线不再是上游 manifest,而是本仓库 git 树的
 「文件清单+sha256」快照(种子 seed-arch-before-upgrade / 各批收工 manifest)。
 文件比对完全走 git 对象(cat-file blob → sha256),不扫工作树、不受未提交内容干扰。
@@ -41,7 +41,7 @@ import sys
 from datetime import datetime
 
 # G4 扫描集排除(方案 §5-G4 行):gate 产物自身不计入 diff
-EXCLUDE_PREFIXES = ("build/", ".Doc/gate/", ".workbuddy/", ".zcode/", ".Doc/review/")
+EXCLUDE_PREFIXES = ("build/", ".Doc/gate/", ".workbuddy/", ".zcode/", ".Doc/history/archive/review/")
 
 HANDLE_PATTERN = re.compile(r"\b(?:hcan\d+|htim\d+|hadc\d+|husart\d+|huart\d+|hspi\d+|hi2c\d+|hdma\d+)\b")
 RTOS_PATTERN = re.compile(
@@ -170,7 +170,7 @@ def strip_comments(text):
 
 
 def scan_redflags_by_path(files, texts):
-    """镜像 audit_baseline 红旗口径,返回 {(path, token): count}。"""
+    """镜像已退役 audit_baseline 的红旗口径,返回 {(path, token): count}。"""
     sites = {}
     for path, text in texts.items():
         if path not in files:

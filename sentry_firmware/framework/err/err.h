@@ -16,7 +16,7 @@
 *          dbg 构建下 err_report 首行断言非临界区(is_in_critical 由 kernel 提供,
 *          POSIX 桩恒为否)。
 *
-* @note    错误码分配:见 .Doc/plan/自主研发框架升级总方案.md §4 err 节;
+* @note    错误码分配:见 .Doc/history/archive/plan/自主研发框架升级总方案.md §4 err 节;
 *          高字节进 BKP0R 低 8 位与蜂鸣码映射表在 B3 落地。
  */
 #pragma once

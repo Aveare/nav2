@@ -73,11 +73,7 @@ try {
 
     Write-Host "[tools] cmake: $cmake"
     if ($ninja) { Write-Host "[tools] ninja: $ninja" }
-    if ($gcc) {
-        Write-Host "[tools] gcc  : $gcc"
-        $gccDir = Split-Path -Parent $gcc
-        if ($env:PATH -notlike "*$gccDir*") { $env:PATH = "$gccDir;$env:PATH" }
-    }
+    if ($gcc) { Write-Host "[tools] gcc  : $gcc" }
 
     # Pin what the preset does not fix, so a fresh build dir does not pick up whatever is on PATH.
     $configureArgs = @('--preset', $Profile)

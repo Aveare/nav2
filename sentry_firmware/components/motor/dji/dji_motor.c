@@ -405,7 +405,7 @@ void dji_motor_control()
             memset(sender_assignment[group].tx_buff + 2 * num, 0, sizeof(uint16_t));
             /* 停机期间连续清 PID 状态:否则积分会跨停机保留,再次使能瞬间带出残余力矩
              * (云台零力->再解锁、急停后恢复都会走这条路)。DM 电机在模式切换处已有同样先例。
-             * 依据:.Doc/detail/yaw轴深化改造计划.md §3.6 / P0-2(2026-11-12)。 */
+             * 依据:.Doc/robots/infantry/design/yaw轴深化改造计划.md §3.6 / P0-2(2026-11-12)。 */
             pid_clear(&motor_controller->angle_PID);
             pid_clear(&motor_controller->speed_PID);
             pid_clear(&motor_controller->current_PID);

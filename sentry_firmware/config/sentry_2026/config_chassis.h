@@ -10,20 +10,22 @@
 
 /* ---------------- 底盘几何 (mm) ---------------- */
 
-#define CHASSIS_WHEEL_BASE 600       /* [用户测量-本地工程] 纵轴距,mm */
-#define CHASSIS_TRACK_WIDTH 560      /* [用户测量-本地工程] 横轮距,mm */
-#define CHASSIS_GIMBAL_OFFSET_X 0    /* [待实测] 大 yaw 轴相对底盘中心前后偏心,mm */
-#define CHASSIS_GIMBAL_OFFSET_Y 0    /* [待实测] 大 yaw 轴左右偏心,mm */
-#define CHASSIS_WHEEL_RADIUS 75      /* [待实测] 轮半径,mm */
-#define CHASSIS_WHEEL_REDUCTION 19.0f /* [规格] M3508 内置减速比 */
-#define CHASSIS_MAX_MOTOR_RPM 6000.0f /* [待实测] 轮电机转子限速,RPM */
+#define CHASSIS_WHEEL_BASE 600 /* [实测 2026-11-27] 600×600 方形底盘:前后轮心距,mm */
+#define CHASSIS_TRACK_WIDTH 600 /* [实测 2026-11-27] 600×600 方形底盘:左右轮心距,mm;轮心对角线 600√2 */
+#define CHASSIS_GIMBAL_OFFSET_X 0    /* [实测] 大 yaw 轴与底盘中心重合,mm */
+#define CHASSIS_GIMBAL_OFFSET_Y 0    /* [实测] 大 yaw 轴与底盘中心重合,mm */
+#define CHASSIS_WHEEL_RADIUS 75      /* [实测-同步兵] 轮半径,mm */
+#define CHASSIS_WHEEL_REDUCTION 19.0f /* [规格] M3508 内置减速比,同步兵 */
+#define CHASSIS_MAX_MOTOR_RPM 9000.0f /* [配置 2026-11-27] 轮电机转子限速,RPM;自转优先取满,
+                                       * 由 7000 抬到 M3508 标称上限 9000(原值 7000) */
 
 /* ---------------- 底盘速度 ---------------- */
 
-#define CHASSIS_MAX_SPEED 1500.0f    /* [待实测] 平移最大速度,mm/s */
-#define CHASSIS_ROTATE_SPEED 195.0f  /* [调参起点-待实测] 小陀螺速度,150 deg/s 的 1.3 倍 */
+#define CHASSIS_MAX_SPEED 2000.0f    /* [配置 2026-11-27] 平移最大速度,mm/s;用户指定 2000 */
+#define CHASSIS_ROTATE_SPEED 300.0f  /* [配置 2026-11-27] 自转暂降 502→300 复测断电:单跑 5373 rpm,
+                                      * 模型估算 60~80 W;若断电消失即功率缓冲问题(见临时排障结论) */
 #define CHASSIS_FOLLOW_WZ_LIMIT 400.0f /* [待实测] 跟随律 wz 总限幅,deg/s;0=不限 */
-#define CHASSIS_TRANSLATE_BIAS_ANGLE 10.0f /* [实测-部分,本地工程] 小陀螺平移偏置角,deg */
+#define CHASSIS_TRANSLATE_BIAS_ANGLE 10.0f /* RM_shaobin2 current configuration */
 
 /* ---------------- 运动平顺 ---------------- */
 
@@ -66,3 +68,27 @@
 /* ---------------- 调试口 ---------------- */
 
 #define CHASSIS_VOFA_UART1_ENABLE 0 /* [配置] 哨兵当前 UART1 给云台 VOFA,底盘 VOFA 保持关闭 */
+
+/* ---------------- 底盘功率控制(移植自步兵,参数按哨兵重标前沿用) ---------------- */
+/* 模型:P = K0 + K1|i| + K2|w| + K3|i||w| + K4 i² + K5 w²。
+ * i=电流指令码/1000,w=转子 rpm;超限解二次方程求电流衰减系数,直接乘 output_scale。
+ * [待实测-哨兵] 以下系数/余量来自步兵实车标定,首次哨兵台架必须用裁判功率复核。 */
+
+#define CHASSIS_POWER_CTRL_EN 0
+#define CHASSIS_POWER_LIMIT_DEFAULT 100.0f /* [规则] 裁判上限无效时兜底,W;哨兵 2026 限 100 */
+#define CHASSIS_POWER_LIMIT_MAX 100.0f     /* [规则] 硬上限,W;有效控制目标 = 100 - 5 = 95 */
+#define CHASSIS_POWER_MARGIN_W 5.0f       /* [实测-沿用] 控制余量,W */
+#define CHASSIS_POWER_SCALE_LP 0.15f      /* [理论] 恢复方向低通(降额同拍生效) */
+#define CHASSIS_POWER_MIN_SCALE 0.20f     /* [安全] 输出下限 */
+#define CHASSIS_POWER_SCALE_MIN 0.05f     /* [安全] 模型内部下限 */
+#define CHASSIS_POWER_BUFFER_MIN_SCALE 0.5f
+#define CHASSIS_POWER_BUFFER_MAX_J 60.0f
+#define CHASSIS_POWER_MODEL_SCALE 1.10f
+#define CHASSIS_POWER_MODEL_BIAS 0.0f
+#define CHASSIS_POWER_CURRENT_DIV 1000.0f
+#define CHASSIS_POWER_MODEL_K0 0.65213f
+#define CHASSIS_POWER_MODEL_K1 (-0.15659f)
+#define CHASSIS_POWER_MODEL_K2 0.00041660f
+#define CHASSIS_POWER_MODEL_K3 0.00235415f
+#define CHASSIS_POWER_MODEL_K4 0.20022f
+#define CHASSIS_POWER_MODEL_K5 0.000000108f

@@ -24,11 +24,14 @@ typedef enum
 
 static cmd_authority_source_e authority_source;
 static cmd_authority_source_e authority_source_last;
+static uint8_t unlock_logged;
 
 static void cmd_apply_safe_outputs(void)
 {
     gimbal_cmd.mode = GIMBAL_ZERO_FORCE;
     gimbal_cmd.small_yaw_rate_deg_s = 0.0f;
+    gimbal_cmd.aim_valid = 0u;
+    auto_aim_fire_request = 0u;
     chassis_cmd.chassis_mode = CHASSIS_ZERO_FORCE;
     chassis_cmd.vx = 0.0f;
     chassis_cmd.vy = 0.0f;
@@ -84,7 +87,7 @@ void cmd_authority_arbitrate(void)
     if (authority_source != AUTH_RUN)
         cmd_apply_safe_outputs();
 
-    // 5. 解锁:右上 + 左中 + 全回中;pitch 从本次实测位置重新建立零增量参考
+    // 5. 解锁:右上 + 左中 + 全回中;解锁沿只重锚定世界 yaw / pitch
     if (remote_control_is_online() && REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right) &&
         REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left) &&
         MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.dial) <= PROTECT_AUTH_NEUTRAL_DEADBAND &&
@@ -96,9 +99,16 @@ void cmd_authority_arbitrate(void)
         robot_state = ROBOT_STATUS_READY;
         /* 停机期间手转/随动会积累世界角误差,解锁瞬间重锚定,避免角度环满输出猛甩 */
         gimbal_cmd.big_yaw = gimbal_fb_recv.big_yaw_world_deg;
-        gimbal_cmd.pitch = 0.0f;
-        gimbal_cmd.small_yaw_rate_deg_s = 0.0f;
+        /* pitch 上电不回中:只把目标重锚定到当前关节角,避免解锁瞬间大幅动作。
+         * (2026-11-23 教训:上电回水平在连杆未确认行程/符号时会把机构顶断) */
+        gimbal_cmd.pitch = 0.0f; // gimbal captures the motor-shaft unlock position
         /* 解锁不请求底盘回中,右拨杆切到中挡后直接自由平移(DEV-20261126-05) */
-        LOG_INFO("[CMD] reinstate, robot ready");
+        if (!unlock_logged)
+        {
+            LOG_INFO("[CMD] reinstate, robot ready");
+            unlock_logged = 1u;
+        }
     }
+    else
+        unlock_logged = 0u;
 }

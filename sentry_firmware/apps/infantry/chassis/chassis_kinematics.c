@@ -102,26 +102,38 @@ void chassis_mecanum_calculate()
  * @brief 四轮等比例限幅(保持平移与旋转比例)并设置电机参考值
  * @note  功率限制接口见 chassis_power 模块
  */
-void chassis_limit_output(float power_scale)
+void chassis_limit_output(float power_scale, float integral_scale)
 {
     /* 功率限幅直接压电流指令(304 口径,DEV-20261126-12):
      * 速度环输出 → output_scale → 发 CAN。只压 MaxOut 在稳态不饱和时无效
      * (稳态电流远低于 MaxOut);压电流指令才能让底盘真正降功率。
      * 同时按比例压低速度环积分限幅,防止电流被压后积分继续累积(windup)。
+     * integral_scale 独立于功率:小陀螺平移→纯自转交接段压积分(DEV-20261126-28),
+     * 削掉松杆瞬态里由平移段积累的 I 项电流,P 项保留。
      * 轮速目标与 MaxOut 不动:速度环仍按操作手目标算误差,由电流限幅自然减速。 */
     if (!(power_scale > 0.0f) || power_scale > 1.0f)
         power_scale = 1.0f;
+    if (!(integral_scale >= 0.0f))
+        integral_scale = 1.0f;
+    if (integral_scale > 1.0f)
+        integral_scale = 1.0f;
 
-    motor_lf->output_scale = power_scale;
-    motor_rf->output_scale = power_scale;
-    motor_lb->output_scale = power_scale;
-    motor_rb->output_scale = power_scale;
-
-    const float integral_limit = (float)CHASSIS_SPEED_PID_IL * power_scale;
-    motor_lf->motor_controller.speed_PID.IntegralLimit = integral_limit;
-    motor_rf->motor_controller.speed_PID.IntegralLimit = integral_limit;
-    motor_lb->motor_controller.speed_PID.IntegralLimit = integral_limit;
-    motor_rb->motor_controller.speed_PID.IntegralLimit = integral_limit;
+    /* 制动轮不参与功率限幅(DEV-20261127-200745):
+     * i 指令与转速反号 = 回馈制动,电功率为负,不占电池功率预算。
+     * 旧实现四轮统一乘 scale,2000 mm/s 满刹车时模型误判约 450W、scale≈0.20,
+     * 刹车力被削掉 80%,实车表现就是松杆滑行、BRAKE_RAMP 加大也无效。
+     * 近零速(<30 deg/s)按电动处理,避免换向瞬间符号抖动导致 scale 跳变。 */
+    dji_motor_t *motors[4] = {motor_lf, motor_rf, motor_lb, motor_rb};
+    for (uint8_t k = 0u; k < 4u; ++k)
+    {
+        dji_motor_t *m = motors[k];
+        const uint8_t braking = (fabsf(m->measure.speed_aps) >= 30.0f) &&
+                                (m->current_cmd * m->measure.speed_aps < 0.0f);
+        const float scale = braking ? 1.0f : power_scale;
+        m->output_scale = scale;
+        m->motor_controller.speed_PID.IntegralLimit =
+            (float)CHASSIS_SPEED_PID_IL * scale * integral_scale;
+    }
 
     float max_speed = fmaxf(fmaxf(fabsf(vt_lf), fabsf(vt_rf)), fmaxf(fabsf(vt_lb), fabsf(vt_rb)));
     float limit = CHASSIS_MAX_MOTOR_RPM * FW_RPM_TO_DEG_S;

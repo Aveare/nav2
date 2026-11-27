@@ -22,8 +22,7 @@ try {
                      'components/calib/calib.c', 'components/control/controller.c',
                      'components/math/user_lib.c', 'components/motor/dji/dji_motor.c')
     New-Item -ItemType Directory -Force -Path 'tests/build', '.Doc/gate/arch-baseline' | Out-Null
-    # The harness provides an initialized override; GCC 10+ needs common-symbol merging.
-    & gcc -std=gnu11 -fcommon -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -include stddef.h @taskIncludes @taskSources -lm -o tests/build/fullchain_harness.exe
+    & gcc -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -include stddef.h @taskIncludes @taskSources -lm -o tests/build/fullchain_harness.exe
     if ($LASTEXITCODE -ne 0) { throw 'fullchain harness compilation failed.' }
     & './tests/build/fullchain_harness.exe'
     if ($LASTEXITCODE -ne 0) { throw 'fullchain harness run failed.' }

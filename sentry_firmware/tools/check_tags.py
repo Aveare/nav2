@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """G7 记录与回退检查(自主研发框架升级总方案 §5-G7,B1 交付;B1 前人工核对)。
 
-判据:①本批 DEV 条目存在(RM_DEVLOG 中有含批次的 DEV 标题行);
+判据:①本批 DEV 条目存在(公共/兵种 DEVLOG 或开发史中有含批次的 DEV 标题行);
 ②`arch-before-B{上一批}` 标签存在且指向上一批收工提交。
 R 系旧标签只读保留(本工具不检查)。
 
@@ -16,7 +16,14 @@ import re
 import subprocess
 import sys
 
-DEVLOG = "RM_DEVLOG.md"
+DEVLOGS = (
+    "RM_DEVLOG.md",
+    ".Doc/history/开发史.md",
+    ".Doc/robots/infantry/DEVLOG.md",
+    ".Doc/robots/sentry/DEVLOG.md",
+    ".Doc/robots/heavy/DEVLOG.md",
+)
+DEV_HEAD_RE = re.compile(r"^#{2,4} (DEV-\d{8}-\d+)｜([^\n]+)", re.M)
 
 
 def run_git(*args):
@@ -29,13 +36,18 @@ def main():
     args = ap.parse_args()
     problems = []
 
-    devlog = open(DEVLOG, encoding="utf-8").read()
-    dev_heads = re.findall(r"^## (DEV-\d{8}-\d+)｜([^\n]+)", devlog, re.M)
+    devlog = ""
+    for path in DEVLOGS:
+        try:
+            devlog += open(path, encoding="utf-8").read()
+        except FileNotFoundError:
+            pass
+    dev_heads = DEV_HEAD_RE.findall(devlog)
     hit = [(i, t) for i, t in dev_heads if args.batch in t]
     if hit:
         print(f"[PASS] 本批 DEV 条目: {hit[0][0]} {hit[0][1][:50]}")
     else:
-        problems.append(f"RM_DEVLOG 无含 {args.batch} 的 DEV 标题行(批次条目缺失)")
+        problems.append(f"DEVLOG/开发史 无含 {args.batch} 的 DEV 标题行(批次条目缺失)")
 
     m = re.fullmatch(r"B(\d+)(b?)", args.batch)
     if not m:

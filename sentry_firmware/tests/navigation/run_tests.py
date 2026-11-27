@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix='sentry_nav_') as build:
                             '-I'+str(root/'components/ax650'),
                             str(root/'components/navigation/nav_protocol.c'),
                             str(root/'components/ax650/ax650_pose.c'),
-                            str(root/'components/ax650/ax650_usb.c'),
+                            str(root/'apps/sentry/autonomy/vision_link.c'),
                             str(root/'apps/sentry/autonomy/autonomy.c'),
                             str(root/'tests/navigation/navigation_test.c'), '-lm', '-o', str(output)], check=True)
             result = subprocess.check_output([str(output)], text=True).splitlines()
@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='sentry_nav_') as build:
             expected_pose = FullPoseFrame(
                 0, 1.0, 0.0, 0.0, 0.0,
                 12.0 * 0.01745329252, -3.0 * 0.01745329252, 8.0 * 0.01745329252,
-                0.0, 950, 949, 948, 947, 0x021f, 0, 0).encode().hex()
+                0.0, 960, 949, 948, 947, 0x023f, 0, 0).encode().hex()
             assert result[0] == expected_nav, (result[0], expected_nav)
             assert result[1] == expected_target, (result[1], expected_target)
             assert result[2] == expected_pose, (result[2], expected_pose)

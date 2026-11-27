@@ -5,11 +5,11 @@
  * @author  小猫大王
  * @note    业务代码只 #include "config.h";子头只定义本域参数,跨域检查集中在伞头。
  * @note    本配置为**实车调试起点**:三轴零位/方向/限位/PID 均带 [待实测] 标记,
- *          首次上电必须按 .Doc/spec/参数证据表.md 的标定流程逐项确认后再闭环。
- * @note    CAN 映射(2026-11-26 实车拨码核对):
+ *          首次上电必须按 .Doc/robots/infantry/params/参数证据表.md 的标定流程逐项确认后再闭环。
+ * @note    CAN 映射(与参考工程 RM_shaobin 一致):
  *          CAN1: 4×M3508 底盘 ESC 1-4 + DM-J4310 大 yaw(ID5/Master0)
- *          CAN2: 2×M3508 摩擦轮(ESC1/2) + M2006 拨盘(ESC3)
- *                + GM6020 小 yaw(ESC1) + DM-J4310 pitch(ID5/Master0)
+ *          CAN2: DM-J4310 pitch(ID5/Master0) + GM6020 小 yaw(ESC1)
+ *                + 2×M3508 摩擦轮(ESC1/2) + M2006 拨盘(ESC3)
  */
 #pragma once
 
@@ -36,10 +36,6 @@
 #endif
 
 /* 下行接收不能脱离链路总开关。 */
-#if AX650_USB_ENABLE && AX650_UART1_ENABLE
-#error "AX650 USB CDC and USART1 transports must be mutually exclusive"
-#endif
-
 #if AX650_UART1_RX_ENABLE && !AX650_UART1_ENABLE
 #error "AX650_UART1_RX_ENABLE=1 需要先开启 AX650_UART1_ENABLE"
 #endif
@@ -48,9 +44,9 @@
 #if (SENTRY_SMALL_YAW_ENABLE != 0) && (SENTRY_SMALL_YAW_ENABLE != 1)
 #error "SENTRY_SMALL_YAW_ENABLE 只能为 0 或 1"
 #endif
-#if SENTRY_SMALL_YAW_CURRENT_MODE && (SENTRY_SMALL_YAW_MAX_OUT > 16384)
+#if SENTRY_SMALL_YAW_CURRENT_MODE && (SENTRY_SMALL_YAW_SPEED_MAXOUT > 16384)
 #error "小 yaw 电流模式输出限幅不得超过 16384(0x1FE/0x2FE 协议满量程)"
 #endif
-#if !SENTRY_SMALL_YAW_CURRENT_MODE && (SENTRY_SMALL_YAW_MAX_OUT > 25000)
+#if !SENTRY_SMALL_YAW_CURRENT_MODE && (SENTRY_SMALL_YAW_SPEED_MAXOUT > 25000)
 #error "小 yaw 电压模式输出限幅不得超过 25000(0x1FF/0x2FF 协议满量程)"
 #endif

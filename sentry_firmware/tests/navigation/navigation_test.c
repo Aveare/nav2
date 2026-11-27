@@ -6,17 +6,20 @@
  */
 #include "autonomy.h"
 #include "ax650_pose.h"
-#include "ax650_usb.h"
 #include "config.h"
 #include "nav_protocol.h"
+#include "quaternion_ekf.h"
+#include "referee_task.h"
 #include "usb_port.h"
 #include "sentry_def.h"
 #include "msg.h"
+#include "vision_link.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
+ekf_state_t ekf_ins;
 static uint32_t now_ms;
 static uint8_t usb_buffer[64], tx_buffer[64];
 static USBCallback receive_callback;
@@ -24,6 +27,8 @@ static sentry_gimbal_feed_t feed;
 static unsigned tx_count;
 static uint16_t tx_length;
 static uint8_t usb_busy;
+
+referee_info_t *referee_get_info(void) { return NULL; }
 
 uint32_t kernel_tick_ms(void) { return now_ms; }
 uint32_t kernel_enter_critical(void) { return 0; }
@@ -198,22 +203,24 @@ int main(void)
     print_hex(target, sizeof(target));
     navigation_deliver(target, 13u);
     autonomy_task();
-    ax650_usb_state_t vision;
-    ax650_usb_get_state(&vision);
-    assert(!vision.command_valid);
+    vision_state_t vision;
+    vision_link_get_state(&vision);
+    assert(!vision.valid);
     navigation_deliver(target + 13u, sizeof(target) - 13u);
     autonomy_task();
-    ax650_usb_get_state(&vision);
-    assert(vision.command_valid && vision.command_count == 1u);
+    vision_link_get_state(&vision);
+    assert(vision.valid && vision.command_count == 1u);
     assert(vision.command.yaw == 30.0f && vision.command.pitch == -5.0f);
     assert(vision.command.yaw_speed == 0.25f && vision.command.pitch_speed == -0.125f);
     assert(vision.command.distance == 4.5f && vision.command.shoot == 1u && vision.command.target_id == 3u);
     now_ms += AX650_COMMAND_TIMEOUT_MS + 1u;
-    ax650_usb_get_state(&vision);
-    assert(!vision.command_valid);
+    vision_link_get_state(&vision);
+    assert(!vision.valid);
 
-    const float identity[4] = {1.0f, 0.0f, 0.0f, 0.0f};
-    ax650_usb_update_quaternion(identity, 950u);
+    ekf_ins.Initialized = 1u;
+    ekf_ins.UpdateCount = 1u;
+    ekf_ins.q[0] = 1.0f;
+    ekf_ins.q[1] = ekf_ins.q[2] = ekf_ins.q[3] = 0.0f;
     feed.big_yaw_rel_deg = 12.0f;
     feed.small_yaw_rel_deg = -3.0f;
     feed.pitch_deg = 8.0f;

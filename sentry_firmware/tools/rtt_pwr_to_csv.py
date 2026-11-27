@@ -5,7 +5,8 @@
 背景:
     固件在 CHASSIS_CALIB_LOG=1 时每 0.5s 输出:
         [pwri] i=i0,i1,i2,i3 w=w0,w1,w2,w3
-        [pwr] p=预测功率 s=衰减系数 lim=上限 be=缓冲
+        [pwr] p=预限幅预测功率 s=总衰减系数 [po=限幅后预测功率] lim=上限 be=缓冲
+    DEV-20261126-33 起 s 是所有模式的总 scale,po 是缩放后模型功率(可选字段)。
     日志用 tools/rtt_log.py 落盘(log/<时间戳>.log)。
     真实功率机器人拿不到,必须由操作手从裁判客户端/台架电源读,再用 --power 传入。
 
@@ -37,7 +38,7 @@ RE_PWRI = re.compile(
     r"\[pwri\]\s*i=([-\d.,]+)\s+w=([-\d.,]+)"
 )
 RE_PWR = re.compile(
-    r"\[pwr\]\s*p=([-\d.]+)\s+s=([-\d.]+)\s+lim=([-\d.]+)\s+be=([-\d.]+)"
+    r"\[pwr\]\s*p=([-\d.]+)\s+s=([-\d.]+)(?:\s+po=[-\d.]+)?\s+lim=([-\d.]+)\s+be=([-\d.]+)"
 )
 
 
