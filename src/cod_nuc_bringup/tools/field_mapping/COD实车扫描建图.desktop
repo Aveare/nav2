@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=COD实车扫描建图
+Comment=启动 MID360S、动态大 yaw 姿态、SLAM Toolbox 和 RViz；不输出底盘速度
+Exec=gnome-terminal --title=COD实车扫描建图 -- bash -lc "/home/rm/cod_deploy/start_hardware_mapping.sh; echo; echo 建图已停止或启动失败，请查看上方信息; echo 可关闭此终端，或输入 exit; exec bash"
+Icon=applications-engineering
+Terminal=false
+Categories=Science;Robotics;
+StartupNotify=true
