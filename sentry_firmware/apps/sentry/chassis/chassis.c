@@ -35,6 +35,10 @@ static attitude_t *chassis_imu;
 
 static float chassis_vx_ramp, chassis_vy_ramp;
 static float chassis_last_ms;
+#if CHASSIS_CALIB_LOG
+static uint16_t chassis_calib_cnt;
+volatile uint16_t chassis_calib_log_div = 100u; // 标定日志分频:200Hz/100=2Hz,运行期可写
+#endif
 
 chassis_ctrl_cmd_t chassis_cmd_recv;
 dji_motor_t *motor_lf, *motor_rf, *motor_lb, *motor_rb;
@@ -255,6 +259,9 @@ void chassis_task(void)
     /* 8. 功率限幅:用未限幅电流指令 + 转子转速预测,scale 直接压四轮电流。
      * 裁判未接时回退 config 兜底值;缓冲能量只在收到过 0x0202 后参与衰减。 */
     float power_scale = 1.0f;
+    float power_p_pred = 0.0f;
+    float power_p_post = 0.0f;
+    float power_limit_w = 0.0f;
     float integral_scale = 1.0f;
 #if CHASSIS_POWER_CTRL_EN
     {
@@ -294,17 +301,76 @@ void chassis_task(void)
                 limit_w *= atten;
             }
         }
-        power_scale = chassis_power_scale(i_cmd, w_dps, limit_w, CHASSIS_POWER_MIN_SCALE, NULL,
-                                          NULL);
+        power_limit_w = limit_w;
+        power_scale = chassis_power_scale(i_cmd, w_dps, limit_w, CHASSIS_POWER_MIN_SCALE,
+                                          &power_p_pred, &power_p_post);
     }
 #endif
 
     chassis_limit_output(power_scale, integral_scale);
     chassis_estimate_speed();
 
-    /* 8. 遥测与反馈 */
+    /* 9. 遥测与反馈 */
     telemetry_push(&telemetry_chassis_fb, chassis_cmd_recv.vx, est_vx, est_vy, est_wz,
                    (uint8_t)chassis_cmd_recv.chassis_mode);
+#if CHASSIS_CALIB_LOG
+    /* 功率标定日志(RTT,默认 2Hz):行格式与步兵一致,tools/rtt_capture_point.py、
+     * rtt_pwr_to_csv.py、fit_power_model.py 不改直接用。
+     * [pwri]/[pwr] 不受 CHASSIS_POWER_CTRL_EN 限制:CTRL_EN=0 时 s 恒 1、p/lim 为 0,
+     * 正好满足拟合"限幅不生效"的前提。
+     * [pwr] 字段序固定 p→s→lim→be(po 尾部附加):capture_point 的正则要求 lim
+     * 紧跟 s,po 插中间会匹配失败;rtt_pwr_to_csv 的 po 是可选段,放尾部兼容双方。 */
+    {
+        uint16_t calib_div = chassis_calib_log_div;
+        if (calib_div < 1u)
+            calib_div = 1u;
+        if (calib_div > 1000u)
+            calib_div = 1000u;
+        if (++chassis_calib_cnt >= calib_div)
+        {
+            char c_vx[16], c_vy[16], c_wz[16], c_gz[16], c_be[16], c_p[16], c_off[16];
+            chassis_calib_cnt = 0;
+            log_float_to_str(c_vx, est_vx);
+            log_float_to_str(c_vy, est_vy);
+            log_float_to_str(c_wz, est_wz);
+            /* gz = IMU(装在大 yaw 座)世界系 yaw 角速度:云台世界稳像时 ≈0,
+             * 不能当底盘转速用;自转工况真实转速用计时法独立测。 */
+            log_float_to_str(c_gz, (chassis_imu != 0)
+                                       ? chassis_imu->Gyro[IMU_AXIS_Z] * FW_RAD_TO_DEG
+                                       : 0.0f);
+            /* off = 云台-底盘夹角(deg):回正时应≈0,不为 0 会斜着走。 */
+            log_float_to_str(c_off, chassis_cmd_recv.offset_angle);
+            log_float_to_str(c_be, (referee_data != 0 && referee_data->PowerHeatTick > 0u)
+                                       ? (float)referee_data->PowerHeatData.buffer_energy
+                                       : -1.0f);
+            log_float_to_str(c_p, referee_data ? referee_data->PowerHeatData.chassis_power : -1.0f);
+            LOG_INFO("[chcal] vx=%s vy=%s wz=%s gz=%s off=%s p=%s be=%s", c_vx, c_vy, c_wz, c_gz,
+                     c_off, c_p, c_be);
+
+            {
+                char c_i0[16], c_i1[16], c_i2[16], c_i3[16];
+                char c_w0[16], c_w1[16], c_w2[16], c_w3[16];
+                char c_pp[16], c_po[16], c_ss[16], c_ll[16];
+                log_float_to_str(c_i0, motor_lf->current_cmd);
+                log_float_to_str(c_i1, motor_rf->current_cmd);
+                log_float_to_str(c_i2, motor_lb->current_cmd);
+                log_float_to_str(c_i3, motor_rb->current_cmd);
+                log_float_to_str(c_w0, motor_lf->measure.speed_aps);
+                log_float_to_str(c_w1, motor_rf->measure.speed_aps);
+                log_float_to_str(c_w2, motor_lb->measure.speed_aps);
+                log_float_to_str(c_w3, motor_rb->measure.speed_aps);
+                log_float_to_str(c_pp, power_p_pred);
+                log_float_to_str(c_po, power_p_post);
+                log_float_to_str(c_ss, power_scale);
+                log_float_to_str(c_ll, power_limit_w);
+                LOG_INFO("[pwri] i=%s,%s,%s,%s w=%s,%s,%s,%s", c_i0, c_i1, c_i2, c_i3, c_w0, c_w1,
+                         c_w2, c_w3);
+                LOG_INFO("[pwr] p=%s s=%s lim=%s be=%s po=%s", c_pp, c_ss, c_ll, c_be, c_po);
+            }
+        }
+    }
+#endif
+
     chassis_fb.est_vx = est_vx;
     chassis_fb.est_vy = est_vy;
     chassis_fb.est_wz = est_wz;

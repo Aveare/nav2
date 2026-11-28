@@ -69,15 +69,26 @@
 
 #define CHASSIS_VOFA_UART1_ENABLE 0 /* [配置] 哨兵当前 UART1 给云台 VOFA,底盘 VOFA 保持关闭 */
 
+#define CHASSIS_CALIB_LOG 1 /* [配置 2026-11-28] 1=RTT 输出 [chcal]/[pwri]/[pwr] 功率标定行(默认 2Hz,
+        * chassis_calib_log_div 运行期可调)。行格式与步兵一致,采集/拟合工具直接复用;
+        * CHASSIS_POWER_CTRL_EN=0 时 s 恒 1,正好满足拟合"限幅不生效"前提。
+        * 只在需要时置 0(比赛/正式固件省 RTT 带宽)。 */
+
 /* ---------------- 底盘功率控制(移植自步兵,参数按哨兵重标前沿用) ---------------- */
 /* 模型:P = K0 + K1|i| + K2|w| + K3|i||w| + K4 i² + K5 w²。
  * i=电流指令码/1000,w=转子 rpm;超限解二次方程求电流衰减系数,直接乘 output_scale。
  * [待实测-哨兵] 以下系数/余量来自步兵实车标定,首次哨兵台架必须用裁判功率复核。 */
 
-#define CHASSIS_POWER_CTRL_EN 0
+#define CHASSIS_POWER_CTRL_EN 1
+/* [台架 2026-11-28 05:58] 0→1:裁判把本车 id 设成哨兵时,平移/自转不到 10 s 就断电;
+ * 设成步兵 id 则正常。原因是哨兵规则下底盘有功率上限 + 60 J 缓冲能量,超限把缓冲耗光后
+ * 裁判直接断电;而本车功率限幅一直关着(CHASSIS_POWER_CTRL_EN=0),底盘按满功率跑。
+ * 打开后按裁判 0x0201 chassis_power_limit 与 0x0202 buffer_energy 缩放四轮电流。
+ * 模型系数仍是步兵标定值(K0~K5/MODEL_SCALE),哨兵自标完成前先靠余量兜底。 */
 #define CHASSIS_POWER_LIMIT_DEFAULT 100.0f /* [规则] 裁判上限无效时兜底,W;哨兵 2026 限 100 */
-#define CHASSIS_POWER_LIMIT_MAX 100.0f     /* [规则] 硬上限,W;有效控制目标 = 100 - 5 = 95 */
-#define CHASSIS_POWER_MARGIN_W 5.0f       /* [实测-沿用] 控制余量,W */
+#define CHASSIS_POWER_LIMIT_MAX 100.0f     /* [规则] 硬上限,W;有效控制目标 = 100 - 8 = 92 */
+#define CHASSIS_POWER_MARGIN_W 8.0f
+/* [安全 2026-11-28] 5→8 W:功率模型是步兵标定的,哨兵未复核,先多留 3 W 余量防止再次耗尽缓冲。 */
 #define CHASSIS_POWER_SCALE_LP 0.15f      /* [理论] 恢复方向低通(降额同拍生效) */
 #define CHASSIS_POWER_MIN_SCALE 0.20f     /* [安全] 输出下限 */
 #define CHASSIS_POWER_SCALE_MIN 0.05f     /* [安全] 模型内部下限 */

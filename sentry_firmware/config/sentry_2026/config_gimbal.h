@@ -45,8 +45,9 @@
  * 摇杆命令、软限位、爬升率都是枪管度,固件按 /R 换算到电机轴;台架量法:断电手推枪管
  * 10°(手机水平仪),R = Δsentry_pitch_position_rad(换算成度) / 10;运行期 sentry_rt_pitch_ratio 可试。 */
 #define SENTRY_BIG_YAW_ZERO_RAD SENTRY_BIG_YAW_FRONT_ALIGN_RAD
-#define SENTRY_PITCH_ZERO_RAD (-2.58163f)     /* [实测 2026-11-27] 枪管水平时 total_position,rad
-                                               * (-147.917°;11-23 的 -1.935 已被拆装改变) */
+#define SENTRY_PITCH_ZERO_RAD (-2.57095f)     /* [实测 2026-11-28 05:40] 枪管水平位 total_position,rad
+                                               * (-147.29°;台架实读,替代 11-27 的 -2.58163/-147.917°;
+                                               * 零位换算限位时用这个值,拆装后必须重读) */
 #define SENTRY_SMALL_YAW_ZERO_ECD SENTRY_SMALL_YAW_CENTER_ECD
 #define SENTRY_IMU_AFTER_SMALL_YAW 0
 /* [待确认] 1=IMU 装在小 yaw 之后的枪体上(IMU 世界 yaw 包含小 yaw 相对角);
@@ -92,19 +93,23 @@
 
 #define SENTRY_PITCH_MAX_ANGLE SENTRY_PITCH_MAX_DEG
 #define SENTRY_PITCH_MIN_ANGLE SENTRY_PITCH_MIN_DEG
-#define SENTRY_PITCH_ZERO_AT_BOOT 1u
-/* [用户要求 2026-11-28] 1=上电校准 pitch:首个有效反馈锁定为 0 位,软限位从上电位置起算。
- * 上电前把枪管放到行程中间(水平附近):放在行程端点会有一侧顶硬限位。
- * 11-27 曾改 0(固定水平零位)是因为"上电在下限位会把下限位当水平",按本条操作要求即可避免。 */
-#define SENTRY_PITCH_MIN_DEG (-15.0f)
-#define SENTRY_PITCH_MAX_DEG 15.0f
-/* [配置 2026-11-28] 相对上电零位的软限位,单位是**枪管俯仰角**(负=下压,正=上抬),
- * 固件按 SENTRY_PITCH_DIRECTION 换算到电机轴。11-27 手推硬限位:水平位上抬 33.8°/下压 35.7°
- * (电机轴 69.5° 行程,与枪管 1:1),枪管居中时 ±15° 每侧留 ~18° 余量;
- * 台架确认后用 sentry_rt_pitch_min/max_deg 放宽再回填。 */
+#define SENTRY_PITCH_ZERO_AT_BOOT 0u
+/* [台架 2026-11-28 05:32] 0=固定零位 SENTRY_PITCH_ZERO_RAD,不再依赖上电姿态(用户要求去掉上电标定)。
+ * 1=首个有效反馈锁存为 0 位;两种方式下 sentry_rt_pitch_zero_rad 都可在运行期改,不必重烧。
+ * 固定零位后 boot_ref_* 观察量恒 0/0 属正常。 */
+#define SENTRY_PITCH_MIN_DEG (-34.1f)
+#define SENTRY_PITCH_MAX_DEG 33.4f
+/* [台架 2026-11-28 05:47] 放开到物理限位内侧 1°(用户要求:原 ±15 太保守,到不了底)。
+ * 依据 11-27 手推硬限位 下压 -112.2° / 上抬 -181.7°,对当前零位 -147.29° 换算:
+ * 下压可用 35.1° → MIN -34.1°;上抬可用 34.4° → MAX +33.4°。单位是枪管俯仰角(负=下压,正=上抬)。
+ * 注意:零位若凭手感偏了 1°,这一侧就贴死物理限位,别长时间压杆。 */
 #define SENTRY_PITCH_LIMIT_MARGIN_DEG 2.0f
-/* [安全] 实测角越过软限位该值立即断力(11-23 事故教训)。 */
-#define SENTRY_PITCH_MAX_TORQUE_NM 1.5f     /* [安全] 连杆已断,行程未复核前限 1.5 N·m */
+/* [安全] 越界判定裕量:健康边界 = 软限位 ± 本值。软限位内缩物理限位 1°,
+ * 本值 2° → 枪管靠重力停在物理限位上时(超出软限位 1°)仍判健康,不误断力;
+ * 真正多走 2° 以上(传感器/机械异常)才断力。11-23 事故教训:越界必须立即断力。 */
+#define SENTRY_PITCH_MAX_TORQUE_NM 2.2f     /* [台架 2026-11-28] 1.5→2.2 N·m:水平位保持实测需 0.73 N·m,
+                                             * 原 1.5 只剩 0.77 加速余量且被积分限幅吃掉;DM4310 连续 3.5 N·m,
+                                             * 2.2 仍留 40% 余量。越界断力/软限位保护不变 */
 #define SENTRY_PITCH_ANGLE_KP 8.0f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
 #define SENTRY_PITCH_ANGLE_DEADBAND 0.5f    /* [待实测] 角度死区,deg */
 #define SENTRY_PITCH_MAX_SPEED_DEG_S 90.0f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
@@ -147,10 +152,11 @@
 
 #define SENTRY_BIG_YAW_FRONT_ALIGN_RAD (-1.52914f) /* [实测 2026-11-26] 人工摆正云台后的多圈位置 */
 
-#define SENTRY_BIG_YAW_FRONT_ALIGN_AT_BOOT 1u
-/* [配置 2026-11-27] 1=上电校准车头:首个有效反馈的关节角锁定为前方参考,
- * 忽略下面的编译常量;连续旋转会让 total_position 跨 25 rad 窗口,常量不可靠。
- * 要求上电前把大 yaw 摆到车头标记。0=退回编译常量(旧行为)。 */
+#define SENTRY_BIG_YAW_FRONT_ALIGN_AT_UNLOCK 1u
+/* [配置 2026-11-28] 1=解锁标定车头(用户要求,替代上电标定):每次从零力态解锁进受控态的那一拍,
+ * 把当前大 yaw 关节角锁定为前方参考;退出受控即清除,下次解锁重新标定。
+ * 操作:解锁前把枪口摆到车头方向(与步兵"解锁回正"同习惯)。
+ * 0=退回编译常量 SENTRY_BIG_YAW_FRONT_ALIGN_RAD(旧行为)。 */
 
 #define SENTRY_BIG_YAW_IMU_DIRECTION 1.0f /* [移植/待实测] RM_shaobin2 */
 
@@ -212,9 +218,12 @@
 
 #define SENTRY_PITCH_DM_CAN_ID 5u /* [移植/待实测] RM_shaobin2 */
 
-#define SENTRY_PITCH_INTEGRAL_NM 0.3f /* [移植/待实测] RM_shaobin2 */
+#define SENTRY_PITCH_INTEGRAL_NM 1.0f /* [台架 2026-11-28] 0.3→1.0 N·m:实测水平位保持需 0.73 N·m,
+                                       * 原 0.3 让 P 项(0.43)一起凑数,合起来卡在 0.73 → 推杆只顶住不动。
+                                       * 积分必须能独立扛住重力矩,否则"刚好不掉下来但不跟手" */
 
-#define SENTRY_PITCH_TORQUE_NM 1.0f /* [移植/待实测] RM_shaobin2 */
+#define SENTRY_PITCH_TORQUE_NM 2.0f /* [台架 2026-11-28] 1.0→2.0 N·m:速度环输出上限,给 0.73 重力矩
+                                     * 留出 ~1.3 N·m 加速/换向余量;过冲/异响就往下收 */
 
 #define SENTRY_PITCH_TORQUE_RANGE_NM 10.0f /* [移植/待实测] RM_shaobin2 */
 

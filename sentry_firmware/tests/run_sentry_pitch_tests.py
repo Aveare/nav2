@@ -100,10 +100,16 @@ static void Tick(int plant) {
 static void Run(int ticks, int plant) { for (int n = 0; n < ticks; ++n) Tick(plant); }
 
 int main(void) {
- /* 上电位置是任意值:零位 = 首个有效反馈锁存的位置。枪管度经 DIR 换算到电机轴。 */
- const float boot = SENTRY_PITCH_ZERO_RAD + 0.3f;
+ /* 零位:ZERO_AT_BOOT=1 时为首个有效反馈锁存的位置,ZERO_AT_BOOT=0 时为固定常量 SENTRY_PITCH_ZERO_RAD。
+  * 枪管度经 DIR 换算到电机轴。 */
+#if SENTRY_PITCH_ZERO_AT_BOOT
+ const float boot = SENTRY_PITCH_ZERO_RAD + 0.3f; /* 任意上电位置 = 0 位 */
+#else
+ const float boot = SENTRY_PITCH_ZERO_RAD;        /* 固定零位 */
+#endif
  const float dir = SENTRY_PITCH_DIRECTION;
- const float lim = SENTRY_PITCH_MAX_DEG * FW_DEG_TO_RAD;
+ const float lim_up = SENTRY_PITCH_MAX_DEG * FW_DEG_TO_RAD;   /* 上抬可用角 */
+ const float lim_dn = -SENTRY_PITCH_MIN_DEG * FW_DEG_TO_RAD;  /* 下压可用角(上下限不对称) */
  const float margin = SENTRY_PITCH_LIMIT_MARGIN_DEG * FW_DEG_TO_RAD;
  sentry_pitch_motor = &motor;
  gimbal_init_controller(&sentry_pitch_controller, false);
@@ -115,8 +121,12 @@ int main(void) {
  gimbal_cmd_recv.mode = GIMBAL_ZERO_FORCE;
  Tick(0);
  assert(!motor.enabled && motor.torque == 0.0f);
+#if SENTRY_PITCH_ZERO_AT_BOOT
  assert(sentry_pitch_boot_ref_valid && sentry_pitch_boot_ref_rad == boot);
  assert(fabsf(sentry_pitch_boot_ref_deg - boot * FW_RAD_TO_DEG) < 0.001f);
+#else
+ assert(!sentry_pitch_boot_ref_valid); /* 固定零位:不锁存 */
+#endif
  /* 解锁前枪管下垂 3°(电机无出力);解锁后目标回到上电 0 位,而不是下垂后的位置。 */
  motor.measure.total_position = boot - 3.0f * FW_DEG_TO_RAD;
  gimbal_cmd_recv.mode = GIMBAL_GYRO_MODE;
@@ -127,28 +137,29 @@ int main(void) {
  assert(fabsf(sentry_pitch_target_rad - boot) < 0.0001f);
  assert(sentry_pitch_torque_nm > 0.0f); /* 位置低于目标 → 朝增大位置方向出力(PID 符号) */
  assert(fabsf(motor.torque - sentry_pitch_torque_nm * SENTRY_PITCH_TORQUE_SIGN) < 0.0001f);
- /* 软限位以枪管俯仰角定义:杆 +15°(上抬)/-15°(下压)经 DIR 落到电机轴;越界命令再夹一次。 */
+ /* 软限位以枪管俯仰角定义(±30° 量级),经 DIR 落到电机轴;越界命令再夹一次。
+ * 目标爬升 60°/s = 0.3°/拍,全行程 67° 需 ~230 拍,这里统一给 400 拍留余量。 */
  PlantReset(boot);
  gimbal_cmd_recv.pitch = SENTRY_PITCH_MAX_DEG;
- Run(100, 0);
- assert(fabsf(sentry_pitch_target_rad - (boot + dir * lim)) < 0.0001f);
- gimbal_cmd_recv.pitch = 40.0f;
- Run(100, 0);
- assert(fabsf(sentry_pitch_target_rad - (boot + dir * lim)) < 0.0001f);
- gimbal_cmd_recv.pitch = SENTRY_PITCH_MIN_DEG;
- Run(200, 0); /* 30° @ 60°/s */
- assert(fabsf(sentry_pitch_target_rad - (boot - dir * lim)) < 0.0001f);
- gimbal_cmd_recv.pitch = -40.0f;
- Run(100, 0);
- assert(fabsf(sentry_pitch_target_rad - (boot - dir * lim)) < 0.0001f);
- gimbal_cmd_recv.pitch = 0.0f;
+ Run(400, 0);
+ assert(fabsf(sentry_pitch_target_rad - (boot + dir * lim_up)) < 0.0001f);
+ gimbal_cmd_recv.pitch = SENTRY_PITCH_MAX_DEG + 10.0f;
  Run(200, 0);
+ assert(fabsf(sentry_pitch_target_rad - (boot + dir * lim_up)) < 0.0001f);
+ gimbal_cmd_recv.pitch = SENTRY_PITCH_MIN_DEG;
+ Run(400, 0);
+ assert(fabsf(sentry_pitch_target_rad - (boot - dir * lim_dn)) < 0.0001f);
+ gimbal_cmd_recv.pitch = SENTRY_PITCH_MIN_DEG - 10.0f;
+ Run(200, 0);
+ assert(fabsf(sentry_pitch_target_rad - (boot - dir * lim_dn)) < 0.0001f);
+ gimbal_cmd_recv.pitch = 0.0f;
+ Run(400, 0);
  assert(fabsf(sentry_pitch_target_rad - boot) < 0.0001f && motor.enabled);
- /* 传动比 R=2(电机转 2° 枪管抬 1°):枪管 ±15° → 电机目标 ±7.5°;非法值回退 config。 */
+ /* 传动比 R=2(电机转 2° 枪管抬 1°):枪管限位角 → 电机目标减半;非法值回退 config。 */
  sentry_rt_pitch_ratio = 2.0f;
  gimbal_cmd_recv.pitch = SENTRY_PITCH_MAX_DEG;
  Run(100, 0);
- assert(fabsf(sentry_pitch_target_rad - (boot + dir * lim / 2.0f)) < 0.0001f);
+ assert(fabsf(sentry_pitch_target_rad - (boot + dir * lim_up / 2.0f)) < 0.0001f);
  sentry_rt_pitch_ratio = NAN;
  gimbal_cmd_recv.pitch = 0.0f;
  Run(100, 0);
@@ -164,7 +175,7 @@ int main(void) {
  gimbal_cmd_recv.mode = GIMBAL_GYRO_MODE;
 #endif
  /* 实测角越过软限位 + 裕量:立即断力并要求重锚;退出使能态后清除;回行程内恢复。 */
- motor.measure.total_position = boot + lim + margin + 1.0f * FW_DEG_TO_RAD;
+ motor.measure.total_position = boot + dir * (lim_up + margin + 1.0f * FW_DEG_TO_RAD);
  Tick(0);
  assert(!motor.enabled && motor.torque == 0.0f && sentry_pitch_rearm_required);
  PlantReset(boot);
@@ -198,7 +209,7 @@ int main(void) {
  peak = fmaxf(peak, fabsf(motor.measure.total_position - boot));
  }
  assert(motor.enabled); /* 没有冲到 ±(15+2)° 的断力边界 */
- assert(peak < lim + margin);
+ assert(peak < lim_up + margin);
  assert(dir * (motor.measure.total_position - boot) > 0.0f); /* 枪管方向 = 上抬 */
  assert(fabsf(motor.measure.total_position - expect) < 0.5f * FW_DEG_TO_RAD); /* 2 s 内收敛到 0.5° 内 */
  /* 松杆(命令不变)持续保持。 */
@@ -222,7 +233,7 @@ int main(void) {
  peak = fmaxf(peak, fabsf(motor.measure.total_position - boot));
  if (!motor.enabled) break;
  }
- assert(!motor.enabled || peak >= lim + margin); /* 发散:被越界断力拦下,或已冲出边界 */
+ assert(!motor.enabled || peak >= lim_dn + margin); /* 发散:被越界断力拦下,或已冲出边界 */
  sentry_rt_pitch_torque_sign = SENTRY_PITCH_TORQUE_SIGN;
  puts("PASS: actual pitch task converges on a normal DM plant (boot-zero latch, hold-at-zero, barrel-degree limits via DIR/ratio, out-of-range cut) and diverges with the legacy -1 torque sign");
  return 0;

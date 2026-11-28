@@ -31,6 +31,7 @@
 | --- | --- | --- |
 | 参数证据 | `params/参数证据表.md`（待建，从 `config/sentry_2026/` 与 DEV 条目整理） | **待建** |
 | 调参结论 | `params/调参结论.md` | **待建** |
+| 功率标定 | `params/功率标定操作卡.md` | 台架三步流程 + 工况表 + 排障（DEV-20261128-050643） |
 | 设计说明 | `.Doc/robots/sentry/design/` | 现有 `RM_shaobin2功能移植.md` |
 | 操作/协议 | `.Doc/robots/sentry/ops/导航协议与上位机.md` | USB 六类消息、帧格式与放行顺序 |
 | 协议合同 | `apps/sentry/app/sentry_def.h` | 带布局守卫 |
@@ -47,6 +48,116 @@
 ## 4. 近期开发条目
 
 <!-- 格式:### DEV-YYYYMMDD-HHMMSS｜日期｜[SENTRY] 标题 -->
+
+### DEV-20261128-055920｜2026-11-28｜[SENTRY] 大 yaw 改解锁标定车头 + 底盘功率限幅打开（"哨兵 id 动几下就断电"）
+
+**触发**。①用户要求大 yaw 从"上电标定"改成"解锁标定";②抽象问题:裁判把机器人 id 设为**哨兵**时,平移或小陀螺动不到 10 s 就断电,设为**步兵**则正常。
+
+**②根因（代码级）**。哨兵 `config_chassis.h` 的 `CHASSIS_POWER_CTRL_EN=0` —— 底盘功率限幅整段被编译掉(`chassis.c` 里 `#if CHASSIS_POWER_CTRL_EN`),`power_scale` 恒 1,四轮按满功率跑。而哨兵规则下底盘有**功率上限 + 60 J 缓冲能量**(0x0201 `chassis_power_limit` / 0x0202 `buffer_energy`):超出上限就把缓冲耗尽,耗尽即被裁判断电;步兵 id 的预算不同(上限更高/无该缓冲机制),所以同样动作不出事。60 J ÷ 10 s ≈ 6 W 超支,与"不到 10 s"完全吻合。11-27 已记录"自转降到 300°/s 仍断电",当时只降了转速、没开限幅。
+
+**①改动**（`config_gimbal.h` / `gimbal.c`）。
+- `SENTRY_BIG_YAW_FRONT_ALIGN_AT_BOOT` → **`SENTRY_BIG_YAW_FRONT_ALIGN_AT_UNLOCK`**：标定时机从"首个有效反馈"改为"每次从零力态进入受控态的那一拍"，退出受控即清除 `valid`，下次解锁重新标定。操作：**解锁前**把枪口摆到车头方向（与步兵"解锁回正"同习惯）；解锁后该姿态即正前，不会甩。
+- `gimbal_front_align_rad()` 与 latch 段同步改名；测试沿用（`Start()` 每次先把位置摆到 `FRONT_ALIGN_RAD` 再进 GYRO，语义等价）。
+
+**②改动**（`config_chassis.h`）。
+- `CHASSIS_POWER_CTRL_EN 0 → 1`：按裁判 `0x0201 chassis_power_limit` 与 `0x0202 buffer_energy` 缩放四轮电流；未接裁判时回退 `CHASSIS_POWER_LIMIT_DEFAULT(100 W)`。
+- `CHASSIS_POWER_MARGIN_W 5 → 8 W`：功率模型 K0~K5/MODEL_SCALE 仍是步兵标定值，哨兵未复核，多留 3 W 余量防再次耗尽缓冲。目标功率 = 裁判上限 − 8 W（哨兵上限若为 80 W 即 72 W）。
+
+**验证**。`build.ps1 sentry -Current` 0 error / 第一方 0 warning，FLASH 129,916 B（12.39%）/ RAM 74,728 B（57.01%）;`run_profile_tests.ps1` 全绿（大 yaw 任务用例、DBUS、pitch 用例）;文档三处（功能检查表 / 待标定表 / 待实测参数表）同步为"解锁标定"。固件 `F68B7D17…`（05:58:45）。
+
+**待确认（台架）**。① 哨兵 id 下平移/自转 30 s 不再断电;② 打开限幅后加速明显变肉属预期，若影响过弯再降 `MARGIN_W` 或按 `CHASSIS_CALIB_LOG` 采集重标模型;③ 解锁标定：解锁前摆正 → 解锁后枪口不甩、手推后回本次解锁姿态;④ 里程计/导航速度估计是否受输出缩放影响（`output_scale` 已进模型）。
+
+**AI**：GLM-5.4（WorkBuddy），2026-11-28。
+
+### DEV-20261128-054952｜2026-11-28｜[SENTRY] pitch 软限位放开到物理限位内侧 1°（用户反馈"太保守"）+ 零位改实读 -2.57095
+
+**触发**。用户反馈:①上下限位太保守,物理限位到不了;②解锁后不回中、不动。
+
+**定位②**（EmberProbe 实时读，本次 ELF 与目标一致 `match`）。
+`rc_data.switch_right=1（上挡）`、`switch_left=3（中）`、`authority_source=1（AUTH_KILL_SWITCH）`、`gimbal_cmd.mode=0（ZERO_FORCE）`、`control_active=0`、`torque=0`。
+→ **右拨杆还在上挡**：右上+左中是"解锁"姿势（`robot_state` 会变 READY），但右上同时是急停挡，只要停在那里云台就一直是零力，所以既不回中也不出力。回中逻辑本身在：解锁沿 `cmd.pitch=0` → 目标=零位 → 按 60°/s 爬回。**离开右上挡（到中/下挡）即生效**。
+
+**改动**（`config/sentry_2026/config_gimbal.h`）。
+- `SENTRY_PITCH_MIN_DEG -15 → -34.1`、`MAX_DEG +15 → +33.4`：按 11-27 手推硬限位（下压 -112.2° / 上抬 -181.7°）对当前零位 -147.29° 换算，下压可用 35.1°、上抬可用 34.4°，各留 1° 内缩。
+- `SENTRY_PITCH_ZERO_RAD -2.54959 → -2.57095`（用户 05:40 台架实读水平位，-147.29°；原注释里的 -146.08° 是换算笔误，已改）。
+- `SENTRY_PITCH_LIMIT_MARGIN_DEG` 保持 2.0：软限位内缩 1° + 判定裕量 2° → 枪管靠重力停在物理限位上（超软限位 1°）仍判健康、不误断力；真越界 2° 以上才断力。
+- 测试：`run_sentry_pitch_tests.py` 改为上下限不对称（`lim_up`/`lim_dn`），并把限位用例的爬升拍数从 100/200 提到 400（±33° @ 60°/s 需 ~230 拍）。
+
+**验证**。`build.ps1 sentry -Current` 0 error / 第一方 0 warning，FLASH 128,764 B（12.28%）/ RAM 74,720 B（57.01%）;`run_sentry_pitch_tests.py` PASS；`run_profile_tests.ps1` 全绿。固件已出，现场烧录。
+
+**风险/待确认**。① 零位按手感定的，若偏 1° 则那一侧会贴死物理限位，别长时间压杆；② 推杆实际行程、到限位是否平稳停住、有无异响/过冲；③ 右侧限位到不了就微调 `sentry_rt_pitch_min/max_deg`（运行期可写）。
+
+**AI**：GLM-5.4（WorkBuddy），2026-11-28。
+
+### DEV-20261128-053452｜2026-11-28｜[SENTRY] pitch 去上电标定改固定零位 + 力矩权限放大（台架"推杆不动"实测定位）
+
+**触发**。用户要求去掉 pitch 上电标定、固定在当前角度;台架现象:解锁后推杆不动。
+
+**实测证据**（EmberProbe 实时读，固件 SHA `5863…`，`firmwareConsistency=match`）。
+- `control_active=1`、`rearm_required=0`、`gimbal_cmd_recv.mode=GYRO(2)`、`input_source=0`、`robot_state=1`；
+- `position=-2.54959 rad`、`boot_ref=-145.25°`（差 0.8°，在 ±17° 内）→ **不是越界**；
+- `T_Mos=31 / T_Rotor=30`、`rx_refresh_dt=1`、`measure.state=1` → **不是过温/掉反馈/未使能**；
+- 推杆后 `gimbal_cmd_recv.pitch=5.99°`、`target=-2.6396`（差 5.2°）、`torque_nm=-0.728 N·m`、`velocity=-0.0073 rad/s`。
+
+**结论**。闭环在跑，但出力被"积分限幅 0.3 + 速度环 P（0.6×0.72≈0.43）"卡在 **0.73 N·m**，恰好等于该姿态重力矩 → 只顶住、不动。与零位/符号/反馈无关，是**力矩权限不足**（同步兵"IL 扛不住重力"的坑）。
+
+**改动**（`config/sentry_2026/config_gimbal.h`，参数级）。
+- `SENTRY_PITCH_ZERO_AT_BOOT 1 → 0`（用户要求固定零位）;`SENTRY_PITCH_ZERO_RAD -2.58163 → -2.54959`（05:32 台架实读水平位；比 11-27 的 -147.917° 差 1.8°，以本次为准，拆装后重读）。
+- `SENTRY_PITCH_INTEGRAL_NM 0.3 → 1.0`（积分要能独立扛住重力矩，不再与 P 项合凑）。
+- `SENTRY_PITCH_TORQUE_NM 1.0 → 2.0`、`SENTRY_PITCH_MAX_TORQUE_NM 1.5 → 2.2`（DM4310 连续 3.5 N·m，留 40% 余量；越界断力/软限位不变）。
+- 测试：`run_sentry_pitch_tests.py` 适配两种零位模式（固定零位时不锁存、`boot_ref_valid` 恒 0）。
+
+**验证**。`build.ps1 sentry -Current` 0 error / 第一方 0 warning，FLASH 127,948 B（12.20%）/ RAM 74,720 B（57.01%）;`run_profile_tests.ps1` 全绿（含 pitch 收敛/发散对照、DBUS pitch 用例）;macros/naming/comment 守卫 PASS。**固件已出，用户现场烧录验证。**
+
+**待确认（台架）**。① 推杆是否跟随、松杆是否保持；② 有无过冲（过冲就把 `SENTRY_PITCH_INTEGRAL_NM` 收到 0.6）；③ 有无异响（有则降 `SENTRY_PITCH_TORQUE_NM`）;④ 稳定性符号仍待首推确认（反向写 `sentry_rt_pitch_torque_sign=-1`）;⑤ 跑通后下一步标重力前馈（`sentry_rt_pitch_gravity_a/b/phase_deg` 运行期可写，A 取负、phase≈0）。
+
+**AI**：GLM-5.4（WorkBuddy），2026-11-28。
+### DEV-20261128-050643｜2026-11-28｜[SENTRY] 功率控制对齐步兵(制动轮退出预算)+ 标定采集工具链
+
+**触发**。用户要求:参考步兵功率控制写好哨兵的,并预写采集工具做到"秒启动、一次成功"。
+
+**根因/差异分析**。哨兵 `chassis_power.c` 停留在步兵 DEV-20261126-12 版本:四轮全计入模型、
+`output_scale` 四轮统一乘——步兵 DEV-20261127-200745 已实车定性该问题(满刹车被误判 ~450W、
+scale 压 0.20、刹车力削 80%:松杆滑行、斜坡失效),制动轮(回馈功率为负)必须退出预算。
+采集侧:步兵链路(`rtt_capture_point/rtt_pwr_to_csv/fit_power_model/power_calib`)齐全,
+但哨兵固件不发 `[pwri]/[pwr]` 行,且 2026-11-27 台架实测采集失败集中在**前置状态**
+(ELF 被别的兵种覆盖、板上固件与 ELF 不同源、RTT 没起,见 capture_guard.js 头注)。
+
+**改动**。
+- `apps/sentry/chassis/chassis_power.c/.h`:制动轮(i·ω<0)跳过模型求和,与步兵同源;
+  全轮制动返回 1.0。
+- `apps/sentry/chassis/chassis_kinematics.c`:`chassis_limit_output` 逐轮判定——制动轮
+  (|ω|≥30 deg/s 且 i·ω<0,近零速按电动防符号抖动)`output_scale=1` 且积分限幅不压,
+  电动轮才吃 power_scale。
+- `apps/sentry/chassis/chassis.c`:`p_pred/p_post/limit_w` 观测并传入模型;新增
+  `CHASSIS_CALIB_LOG` RTT 标定日志(默认 2Hz,`chassis_calib_log_div` 运行期可写):
+  `[chcal] vx/vy/wz/gz/off/p/be` + `[pwri] i×4 w×4` + `[pwr] p→s→lim→be→po`。
+  **行序刻意 p→s→lim→be**:capture_point 正则要求 lim 紧跟 s,po 插中间会匹配失败;
+  日志不受 CTRL_EN 限制(=0 时 s 恒 1,正好满足拟合"限幅不生效"前提)。
+- `config/sentry_2026/config_chassis.h`:新增 `CHASSIS_CALIB_LOG 1`;`CHASSIS_POWER_CTRL_EN`
+  **保持 0**(断电复测中,开启时机由台架定,操作卡写明)。
+- `tests/sentry_chassis_power_test.c`:新增制动轮用例(全制动 p_pred=0;混合工况预测恰为
+  全电动一半)。
+- **新增 `tests/sentry/power_capture.py`**(哨兵兵种路径,不改共享 tools/):
+  `doctor`(秒级前置体检:ELF 身份/current.txt SHA/采集锁/RTT 可读/[pwri] 流=板上固件即新)、
+  `capture <cond>`(体检→开采提示→复用 `tools/rtt_capture_point.py` 原协议采集)、
+  `selftest`(内置样例行同时过两个共享解析器,格式兼容的机器证明)。
+- 新增 `.Doc/robots/sentry/params/功率标定操作卡.md`(三步流程/工况表/拟合回填/排障速查)。
+
+**验证**。`build.ps1 sentry -Current`:0 error、第一方 0 warning,text 128,136 / data 744 /
+bss 128,936;`check_sections --elf build_sentry/sentry.elf` PASS(RAM 57.0%、CCM 83.8%≤90%);
+`run_profile_tests.ps1` PASS(含功率模型新用例)、`run_chassis_tests.ps1` PASS;
+`power_capture.py selftest` PASS(capture_point 与 rtt_pwr_to_csv 双解析器兼容);
+`doctor` 本机实测:4 项本地检查 <1s PASS,RTT 项在探针未接时给出明确处置提示(符合设计)。
+未烧录、未台架。
+
+**待实测(台架)**。按 `params/功率标定操作卡.md`:doctor → 采 static/v500/v1000/v2000/
+spin300/spin300v1000 六工况(每工况读客户端稳态功率)→ `fit_power_model.py` 拟合 →
+回填 K0..K5 并同步核对 LIMIT_MAX/LIMIT_DEFAULT/BUFFER_MIN_SCALE → CTRL_EN 置 1 全包线复测
+(自转+平移,观察 s/lim/be)。判据:全包线预测功率 ≤ 上限、刹车/急停不被 scale 削、
+小陀螺不再触发裁判缓冲断电。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
 
 ### DEV-20261128-042342｜2026-11-28｜[SENTRY] USB 上行切换 `0x1022` 完整姿态
 

@@ -45,16 +45,22 @@ void chassis_limit_output(float power_scale, float integral_scale)
     if (integral_scale > 1.0f)
         integral_scale = 1.0f;
 
-    /* 功率限幅压电流指令,同时按比例压低速度环积分限幅防 windup。 */
-    motor_lf->output_scale = power_scale;
-    motor_rf->output_scale = power_scale;
-    motor_lb->output_scale = power_scale;
-    motor_rb->output_scale = power_scale;
-    const float integral_limit = (float)CHASSIS_SPEED_PID_IL * power_scale * integral_scale;
-    motor_lf->motor_controller.speed_PID.IntegralLimit = integral_limit;
-    motor_rf->motor_controller.speed_PID.IntegralLimit = integral_limit;
-    motor_lb->motor_controller.speed_PID.IntegralLimit = integral_limit;
-    motor_rb->motor_controller.speed_PID.IntegralLimit = integral_limit;
+    /* 制动轮不参与功率限幅(与 chassis_power.c 的电动轮求和配套):
+     * i 指令与转速反号 = 回馈制动,电功率为负,不占电池功率预算;
+     * 旧实现四轮统一乘 scale,满刹车时模型误判大功率、scale≈下限,
+     * 刹车力被削掉(步兵 DEV-20261127-200745 实车定性)。近零速(<30 deg/s)
+     * 按电动处理,避免换向瞬间符号抖动导致 scale 跳变。 */
+    dji_motor_t *motors[4] = {motor_lf, motor_rf, motor_lb, motor_rb};
+    for (uint8_t k = 0u; k < 4u; ++k)
+    {
+        dji_motor_t *m = motors[k];
+        const uint8_t braking = (fabsf(m->measure.speed_aps) >= 30.0f) &&
+                                (m->current_cmd * m->measure.speed_aps < 0.0f);
+        const float scale = braking ? 1.0f : power_scale;
+        m->output_scale = scale;
+        m->motor_controller.speed_PID.IntegralLimit =
+            (float)CHASSIS_SPEED_PID_IL * scale * integral_scale;
+    }
 
     float max_speed = fmaxf(fmaxf(fabsf(vt_lf), fabsf(vt_rf)), fmaxf(fabsf(vt_lb), fabsf(vt_rb)));
     float limit = CHASSIS_MAX_MOTOR_RPM * FW_RPM_TO_DEG_S;

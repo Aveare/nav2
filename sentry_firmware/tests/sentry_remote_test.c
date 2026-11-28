@@ -174,7 +174,8 @@ int main(void)
     RcFrame(0,0,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump(); ExpectSafe();
     Unlock(); ArmFollow();
     /* pitch(须在键鼠测试之前:鼠标活动会把 input_source 切到 KBM,之后不再走 cmd_remote_set):
-     * 解锁零位 = 0°;杆量死区内不积分;死区外按 STICK_RATE 积分;上下对称夹在 ±15°。 */
+     * 解锁零位 = 0°;杆量死区内不积分;死区外按 STICK_RATE 积分;夹在 [MIN, MAX](上下限不对称)。
+     * 满杆 20°/s = 每拍 0.1°,走满 ±34° 需 ~340 拍,这里给 800/400 拍。 */
     assert(gimbal_cmd_ut.pitch == 0.0f);
     RcFrame(0,0,0,20,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump();
     assert(gimbal_cmd_ut.pitch == 0.0f); // 20 < 死区 40:回中偏置不再单向爬到限位
@@ -183,13 +184,13 @@ int main(void)
     /* 半杆 effort = (350-40)/(660-40) = 0.5 → 每拍 20°/s × 5 ms × 0.5 = +0.05° */
     assert(fabsf(gimbal_cmd_ut.pitch - 0.5f) < 0.01f);
     RcFrame(0,0,0,660,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18);
-    for (int i = 0; i < 200; ++i) Pump(); // 满杆 20°/s × 1 s = +20°,超过上限
-    assert(gimbal_cmd_ut.pitch == SENTRY_PITCH_MAX_ANGLE && gimbal_cmd_ut.pitch == 15.0f);
+    for (int i = 0; i < 400; ++i) Pump(); // 满杆 +40°,打到上限
+    assert(gimbal_cmd_ut.pitch == SENTRY_PITCH_MAX_ANGLE);
     RcFrame(0,0,0,-660,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18);
-    for (int i = 0; i < 200; ++i) Pump(); // 15° − 20° = −5°:穿过零位继续下行
+    for (int i = 0; i < 400; ++i) Pump(); // 反向 40°:穿过零位到负区
     assert(gimbal_cmd_ut.pitch < 0.0f && gimbal_cmd_ut.pitch > SENTRY_PITCH_MIN_ANGLE);
-    for (int i = 0; i < 200; ++i) Pump(); // 再下行 20°:夹在下限 −15°(原 MIN=0 时只能停在 0)
-    assert(gimbal_cmd_ut.pitch == SENTRY_PITCH_MIN_ANGLE && gimbal_cmd_ut.pitch == -15.0f);
+    for (int i = 0; i < 400; ++i) Pump(); // 再下行:夹在下限(原 MIN=0 时只能停在 0)
+    assert(gimbal_cmd_ut.pitch == SENTRY_PITCH_MIN_ANGLE);
     RcFrame(0,660,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump();
     assert(chassis_cmd_ut.vx == CHASSIS_MAX_SPEED && chassis_cmd_ut.vy == 0);
     RcFrame(0,-660,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump();

@@ -249,7 +249,7 @@ void gimbal_init(void)
 }
 static float gimbal_front_align_rad(void)
 {
-#if SENTRY_BIG_YAW_FRONT_ALIGN_AT_BOOT
+#if SENTRY_BIG_YAW_FRONT_ALIGN_AT_UNLOCK
     if (sentry_big_yaw_front_align_valid)
         return sentry_big_yaw_front_align_rad;
 #endif
@@ -278,13 +278,22 @@ static void gimbal_big_yaw_task(float now_ms)
                            SENTRY_BIG_YAW_TRANSMISSION_RATIO;
     const float speed = SENTRY_BIG_YAW_DIRECTION * motor->measure.velocity /
                         SENTRY_BIG_YAW_TRANSMISSION_RATIO;
-#if SENTRY_BIG_YAW_FRONT_ALIGN_AT_BOOT
-    /* 上电校准车头:首个有效反馈的关节角即本次上电的前方参考。 */
-    if (!sentry_big_yaw_front_align_valid && online && isfinite(position))
+#if SENTRY_BIG_YAW_FRONT_ALIGN_AT_UNLOCK
+    /* 解锁标定车头:每次从零力态进入受控态的那一拍,把当前关节角锁为前方参考。
+     * 退出受控即清除,下次解锁重新标定——操作习惯与步兵"解锁回正"一致:
+     * 解锁前把枪口摆到车头方向,解锁后该姿态即正前。 */
+    static uint8_t front_align_armed;
+    if (!command_active)
+    {
+        sentry_big_yaw_front_align_valid = 0u;
+        front_align_armed = 0u;
+    }
+    else if (!front_align_armed && online && isfinite(position))
     {
         sentry_big_yaw_front_align_rad = position;
         sentry_big_yaw_front_align_deg = position * FW_RAD_TO_DEG;
         sentry_big_yaw_front_align_valid = 1u;
+        front_align_armed = 1u;
     }
 #endif
     const float fixed_target = gimbal_front_align_rad();

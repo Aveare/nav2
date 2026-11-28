@@ -44,6 +44,12 @@ float chassis_power_scale(const float current_cmd[4], const float w_dps[4], floa
     float s0 = 0.0f, s1 = 0.0f, s2 = 0.0f;
     for (uint8_t k = 0u; k < 4u; k++)
     {
+        /* 制动轮(i 与 ω 反号)跳过:回馈制动的电功率为负,不占电池功率预算。
+         * 旧实现取 |i||ω| 把满刹车判成大功率,scale 被压到下限,刹车基本失效
+         * (步兵 DEV-20261127-200745 实车定性,哨兵同源移植)。
+         * 静止(w=0)按电动处理,保证起步电流仍受模型约束。 */
+        if (current_cmd[k] * w_dps[k] < 0.0f)
+            continue;
         float c0, c1, c2;
         motor_power_coeffs(current_cmd[k], w_dps[k], &c0, &c1, &c2);
         s0 += c0;
