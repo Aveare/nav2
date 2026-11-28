@@ -66,6 +66,21 @@ def setup(context):
                  name='lifecycle_manager_hardware_localization', output='screen', parameters=[{
                      'autostart': True, 'use_sim_time': False, 'node_names': ['map_server', 'amcl']}]),
         ])
+        if enabled('auto_initial_pose', 'true') and value('spawn_side', 'auto').lower() != 'none':
+            map_base, _ = os.path.splitext(value('map'))
+            red_spawn = value('red_spawn_file') or f'{map_base}_red_spawn.csv'
+            blue_spawn = value('blue_spawn_file') or f'{map_base}_blue_spawn.csv'
+            nodes.append(Node(
+                package='cod_nuc_bringup',
+                executable='spawn_initial_pose.py',
+                name='spawn_initial_pose',
+                output='screen',
+                parameters=[{
+                    'spawn_side': value('spawn_side', 'auto'),
+                    'red_spawn_file': red_spawn,
+                    'blue_spawn_file': blue_spawn,
+                }],
+            ))
     if enabled('start_navigation'):
         # Override the unmeasured legacy footprint; require the caller's measured polygon.
         import ast
@@ -110,6 +125,10 @@ def generate_launch_description():
         DeclareLaunchArgument('waypoints_file', default_value=''),
         DeclareLaunchArgument('imu_extrinsics_confirmed', default_value='false'),
         DeclareLaunchArgument('footprint', default_value='[]'),
+        DeclareLaunchArgument('auto_initial_pose', default_value='true'),
+        DeclareLaunchArgument('spawn_side', default_value='auto'),
+        DeclareLaunchArgument('red_spawn_file', default_value=''),
+        DeclareLaunchArgument('blue_spawn_file', default_value=''),
         DeclareLaunchArgument('map', default_value=os.path.join(cod, 'maps', 'rmul2026.yaml')),
         DeclareLaunchArgument('lio_params_file', default_value=os.path.join(cod, 'params', 'mid360s_lio.yaml')),
         DeclareLaunchArgument('nav2_params_file', default_value=os.path.join(cod, 'params', 'multiplenav2_params.yaml')),

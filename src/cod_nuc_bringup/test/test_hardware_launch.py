@@ -36,6 +36,8 @@ class HardwareLaunchTest(unittest.TestCase):
             self.assertNotIn('cod_serial_ul26', packages)
             self.assertEqual(packages.count('slam_toolbox'), int(mode == 'mapping'))
             self.assertEqual(packages.count('nav2_amcl'), int(mode == 'localization'))
+            executables = [perform_substitutions(context, normalize_to_list_of_substitutions(node.node_executable)) for node in actions if isinstance(node, Node)]
+            self.assertEqual(executables.count('spawn_initial_pose.py'), int(mode == 'localization'))
             for action in actions:
                 if isinstance(action, IncludeLaunchDescription):
                     args = dict(action.launch_arguments)

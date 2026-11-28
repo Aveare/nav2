@@ -16,10 +16,11 @@ cleanup() {
   echo "[INFO] 正在停止 test 地图定位和 RViz……"
   field_stop_group "${rviz_pid}"
   field_stop_group "${launch_pid}"
-  rm -f "${FIELD_LOCALIZATION_PID_FILE}"
+  if [[ -r "${FIELD_LOCALIZATION_PID_FILE}" ]] && [[ "$(field_read_pid "${FIELD_LOCALIZATION_PID_FILE}" || true)" == "$$" ]]; then
+    rm -f "${FIELD_LOCALIZATION_PID_FILE}"
+  fi
   echo "[INFO] test 地图定位已停止。"
 }
-trap cleanup EXIT INT TERM HUP
 
 [[ -s "${FIELD_MAP_BASE}.yaml" ]] || {
   echo "[FAIL] 找不到 ${FIELD_MAP_BASE}.yaml，请先执行步骤 03。"
@@ -49,6 +50,7 @@ fi
 
 mkdir -p "${FIELD_LOG_DIR}"
 printf '%s\n' "$$" > "${FIELD_LOCALIZATION_PID_FILE}"
+trap cleanup EXIT INT TERM HUP
 timestamp="$(date +%Y%m%d_%H%M%S)"
 launch_log="${FIELD_LOG_DIR}/field_localization_${timestamp}.log"
 rviz_log="${FIELD_LOG_DIR}/field_localization_rviz_${timestamp}.log"
