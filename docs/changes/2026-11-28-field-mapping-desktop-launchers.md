@@ -1,5 +1,7 @@
 # 建图步骤改为桌面程序入口
 
+> 此方案中的 `.desktop` 文件在 Nautilus 普通文件夹内会被当作文本打开，已由 [Nautilus 原生可执行程序修复](2026-11-28-nautilus-native-executable-launchers.md) 替代。
+
 日期：2026-11-28
 
 ## 目标
