@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=COD自动扫描建图并30秒保存
+Comment=登录桌面后自动启动安全建图，并每30秒更新test地图
+Exec=/home/rm/cod_deploy/auto_mapping_autosave.sh
+Icon=applications-engineering
+Terminal=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=10
+StartupNotify=false

@@ -11,6 +11,7 @@ FIELD_LOG_DIR="/home/rm/cod_deploy/logs"
 FIELD_MAPPING_PID_FILE="${FIELD_LOG_DIR}/hardware_mapping_session.pid"
 FIELD_LOCALIZATION_PID_FILE="${FIELD_LOG_DIR}/field_localization_session.pid"
 FIELD_CENTER_PID_FILE="${FIELD_LOG_DIR}/field_center_display_session.pid"
+FIELD_AUTO_MAPPING_PID_FILE="${FIELD_LOG_DIR}/auto_mapping_autosave.pid"
 FIELD_RVIZ_CONFIG="/home/rm/cod_ws/install/cod_nuc_bringup/share/cod_nuc_bringup/config/rmul2026_sim.rviz"
 export TZ=Asia/Shanghai
 
