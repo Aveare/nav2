@@ -95,26 +95,17 @@
 
 <!-- 只放 [公共] 条目；兵种条目写各自 DEVLOG。格式：### DEV-…｜日期｜[公共] 标题 -->
 
-### DEV-20261128-073923｜2026-11-28｜[公共] INS 静止零偏在线跟踪(ZUPT)治理 yaw 温漂
+### DEV-20261128-105220｜2026-11-28｜[公共] 回退 INS ZUPT(翻案,引用 DEV-20261128-073923)
 
-**触发**。哨兵台架实测(EmberProbe live 2592 点):静止段 `YawTotalAngle` 匀速漂
-**~0.09-0.11°/s(≈6°/分)**,Gyro[2] 瞬时仅 ±1°/s 噪声 → 陀螺零偏残差被 EKF 持续积分。
-`bmi088_init(1)` 的上电静态标定是一次性的(验收阈 |偏|<0.57°/s,12s 超时退离线常数),
-不跟踪暖机温漂(IMU 已从上电温度暖到 39.7°C);`ins_param_correction` 只是未启用的
-安装角 demo。无磁力计,yaw 无外部参考,只能靠零偏治理。
+**触发**。用户指示"回退imu":ZUPT 的漂移分析对象搞错了车辆——`emberprobe-live` 数据来自
+**步兵车**(live 视图列含 sentry 专有符号,归属判断失误),按哨兵语境实现并合入不成立。
 
-**实现**。`components/imu/ins_task.c` 新增 `ins_bias_track_update()`(1kHz,单写者):
-①陀螺/加速度偏离先过 RC≈0.3s 低通(电机振动是高频,滤波后不误判);
-②低通陀螺三轴均 <0.03 rad/s(1.7°/s)且 ‖a‖−g<1.5 m/s² 连续 3s 判"静置";
-③以 τ≈20s 吸收残差进二级零偏(绝对界 ±0.05 rad/s 防异常吞姿态);
-④二级零偏**恒定扣除**(吸收门控只作用于更新,无台阶);转动/振动立即冻结并清计数。
-修正原地作用于 `ins_state.Gyro`,EKF 与全部消费者(大yaw世界环/跟随 FF/自瞄)同拍受益。
-已知折衷:低于 1.7°/s 且持续数分钟的真实旋转会被部分吸收——RM 工况无此操作,接受。
+**回退内容**。`git revert -m 1 d32bba8`:撤销 `components/imu/ins_task.c` 的
+`ins_bias_track_update()` 与当日公共台账条目,共 -92 行;main 已回退,sentry 下行同步,
+infantry 从未合入。ZUPT 机制保留在历史(`97a9b36`/回退对),若日后在**正确车辆**上
+验证了漂移数据,可 cherry-pick 复活,须先在该兵种分支以该车的 ELF/固件一致性为前提重采数据。
 
-**验证**。infantry/sentry 双 profile ARM 0E0W;`run_profile_tests.ps1` 全绿;
-`run_fwk_tests.ps1` 中 `check_symbol_contract` FAIL 为**基线问题**(纯净 main 复跑同样失败:
-`capture_guard`/`chassis_trace` 2026-11-27 批的工具清单滞后,与本次无关,待共享批修)。
-新增静态函数=结构级,经用户批准;效果(漂移 → <0.02°/s)待哨兵台架 60s 静止复测。
+**验证**。revert 后 infantry/sentry 双 profile 编译通过;哨兵固件已重建同步(不含 ZUPT)。
 
 **AI**:GLM-5.3-Flash,2026-11-28。
 

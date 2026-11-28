@@ -33,21 +33,6 @@ static float dt = 0, t = 0;
 static float ins_ref_temp = 40; // 恒温设定温度
 
 static void ins_param_correction(ins_imu_param_t *param, float gyro[3], float accel[3]);
-static void ins_bias_track_update(float gyro[3], const float accel[3]);
-
-/* ---------------- 静止零偏在线跟踪(ZUPT) ----------------
- * 上电静态标定(bmi088_calibrate_mpu_offset)只标一次;IMU 暖机与环境温漂使零偏残差
- * 持续存在,无磁力计时 yaw 只能积分它(实测 ~0.09°/s ≈ 6°/分,5 分钟比赛漂 30°)。
- * 本块用一阶低通先滤掉电机振动,再判"静置":低通陀螺全部低于阈值且 ‖a‖−g 够小,
- * 连续 3s 后以 ~20s 时间常数把残差吸收进二级零偏;真实机动/振动立即冻结并清零计数。
- * 二级零偏恒定作用于输出(吸收门控只作用于更新,无台阶)。已知折衷:低于 1.7°/s 且
- * 持续数分钟的真实旋转会被部分吸收——RM 工况无此操作(自转/跟随远高于阈值),接受。 */
-#define INS_ZUPT_GYRO_THRESH_RAD_S 0.03f /* 单轴静置判定阈值,≈1.7°/s */
-#define INS_ZUPT_ACCEL_DEV_M_S2 1.5f     /* 低通后 ‖a‖−g 容差,0.15g */
-#define INS_ZUPT_HOLD_TICKS 3000u        /* 连续静置时长,1kHz 下 3s */
-#define INS_ZUPT_VIBE_RC_S 0.3f          /* 振动低通时间常数,s */
-#define INS_ZUPT_ALPHA 0.00005f          /* 吸收低通系数,τ≈20s @1kHz */
-#define INS_ZUPT_BIAS_LIMIT_RAD_S 0.05f  /* 二级零偏绝对界(≈2.9°/s),防异常吞姿态 */
 
 static void ins_imu_pwm_set(uint16_t pwm)
 {
@@ -62,57 +47,6 @@ static void ins_imu_temperature_ctrl(void)
 {
     pid_calculate(&ins_temp_ctrl, bmi088.Temperature, ins_ref_temp);
     ins_imu_pwm_set(math_float_clamp(math_float_round(ins_temp_ctrl.Output), 0, UINT32_MAX));
-}
-
-/**
- * @brief  静止零偏在线跟踪:gyro/accel 为本拍测量,函数原地扣除二级零偏
- * @note   吸收只在"低通静置持续达 hold"时进行;恒定输出扣除保证无台阶。
- *         单写者=ins_task;阈值/常数见文件头 ZUPT 块注释。
- */
-static void ins_bias_track_update(float gyro[3], const float accel[3])
-{
-    static float bias[3];
-    static float gyro_lp[3], accel_dev_lp;
-    static uint32_t still_ticks;
-    static uint8_t lp_init;
-
-    if (!lp_init)
-    {
-        for (uint8_t i = 0; i < 3; ++i)
-            gyro_lp[i] = gyro[i];
-        lp_init = 1u;
-    }
-    const float alpha = dt / (INS_ZUPT_VIBE_RC_S + dt);
-    const float a_norm = sqrtf(accel[0] * accel[0] + accel[1] * accel[1] + accel[2] * accel[2]);
-    const float accel_dev = fabsf(a_norm - 9.81f);
-
-    uint8_t still = 1u;
-    for (uint8_t i = 0; i < 3; ++i)
-    {
-        gyro_lp[i] += alpha * (gyro[i] - gyro_lp[i]);
-        if (fabsf(gyro_lp[i]) > INS_ZUPT_GYRO_THRESH_RAD_S)
-            still = 0u;
-    }
-    accel_dev_lp += alpha * (accel_dev - accel_dev_lp);
-    if (accel_dev_lp > INS_ZUPT_ACCEL_DEV_M_S2)
-        still = 0u;
-
-    if (!still)
-        still_ticks = 0u;
-    else if (++still_ticks >= INS_ZUPT_HOLD_TICKS)
-    {
-        for (uint8_t i = 0; i < 3; ++i)
-        {
-            bias[i] += INS_ZUPT_ALPHA * (gyro[i] - bias[i]);
-            if (bias[i] > INS_ZUPT_BIAS_LIMIT_RAD_S)
-                bias[i] = INS_ZUPT_BIAS_LIMIT_RAD_S;
-            else if (bias[i] < -INS_ZUPT_BIAS_LIMIT_RAD_S)
-                bias[i] = -INS_ZUPT_BIAS_LIMIT_RAD_S;
-        }
-    }
-
-    for (uint8_t i = 0; i < 3; ++i)
-        gyro[i] -= bias[i];
 }
 
 // 使用加速度计的数据初始化Roll和Pitch,而Yaw置0,这样可以避免在初始时候的姿态估计误差
@@ -222,9 +156,6 @@ void ins_task(void)
         ins_state.Gyro[IMU_AXIS_X] = bmi088.Gyro[IMU_AXIS_X];
         ins_state.Gyro[IMU_AXIS_Y] = bmi088.Gyro[IMU_AXIS_Y];
         ins_state.Gyro[IMU_AXIS_Z] = bmi088.Gyro[IMU_AXIS_Z];
-
-        // 静止零偏在线跟踪:原地扣除温漂残差,EKF 与全部消费者读到的是修正后角速度
-        ins_bias_track_update(ins_state.Gyro, ins_state.Accel);
 
         // demo function,用于修正安装误差,可以不管,本demo暂时没用
         ins_param_correction(&ins_imu_param, ins_state.Gyro, ins_state.Accel);
