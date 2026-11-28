@@ -44,10 +44,11 @@ if command -v fuser >/dev/null 2>&1 && fuser "${USB_SERIAL_PORT}" >/dev/null 2>&
 fi
 
 echo "[PASS] 串口当前空闲。"
-echo "[INFO] 正式 sentry 分支当前可验证的 USB 消息："
+echo "[INFO] 当前双协议共口 USB 消息清单（NV v1 + RMCV）："
 echo "       NUC→STM32  NV COMMAND=1（本流程只发 VALID=0 的零速安全帧）"
 echo "       STM32→NUC  NV FEEDBACK=2"
 echo "       NUC→STM32  NV SYNC_REQUEST=3"
 echo "       STM32→NUC  NV SYNC_RESPONSE=4"
-echo "       RMCV 0x1021/0x0503 只在未合并功能分支中接入 USB。"
+echo "       STM32→NUC  RMCV 0x1022（61 B 完整云台姿态 + valid_flags + robot_id）"
+echo "       NUC→STM32  RMCV 0x0503（39 B 自瞄目标；本流程固定 target_id=0, shoot=0）"
 usb_print_next "02_启动安全串口桥.sh"

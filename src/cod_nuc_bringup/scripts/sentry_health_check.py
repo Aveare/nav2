@@ -23,14 +23,20 @@ def diagnose(metrics: dict) -> list:
     # 1. 硬件物理连接
     lidar_ok = bool(metrics.get('lidar_ping_ok', False))
     tty_list = metrics.get('tty_devices') or []
+    by_id_list = metrics.get('serial_by_id') or []
     if lidar_ok:
         items.append(('1. 雷达网线连接', '正常', '能 ping 通雷达 (192.168.1.144)', '无需处理'))
     else:
         items.append(('1. 雷达网线连接', '故障', 'ping 不通雷达 (192.168.1.144)',
                       '检查雷达供电是否亮灯、网线有没有插紧、小电脑网口静态 IP 是否在 192.168.1.x 网段'))
 
-    if tty_list:
-        items.append(('2. USB 串口识别', '正常', f'已识别设备: {", ".join(tty_list)}', '无需处理'))
+    if by_id_list:
+        items.append(('2. USB 串口识别', '正常',
+                      f'已识别稳定路径: {", ".join(by_id_list)}',
+                      '无需处理'))
+    elif tty_list:
+        items.append(('2. USB 串口识别', '正常', f'已识别设备: {", ".join(tty_list)}',
+                      '建议优先使用 /dev/serial/by-id/ 稳定路径'))
     else:
         items.append(('2. USB 串口识别', '故障', '没看到 /dev/ttyACM* 串口设备',
                       '检查小电脑到 C 板的 USB 线有没有插牢、C 板是否上电；拔插后重跑 ls /dev/ttyACM*'))
@@ -85,13 +91,23 @@ def diagnose(metrics: dict) -> list:
     # 5. USB 回报（大转盘角度 + 云台姿态）
     yaw_n = int(metrics.get('big_yaw_msgs', 0))
     pose_n = int(metrics.get('autoaim_pose_msgs', 0))
+    bridge = metrics.get('usb_bridge_status')
+    bridge_detail = ''
+    if isinstance(bridge, dict):
+        bridge_detail = (
+            f'；clock_sync={bridge.get("clock_sync_ok")}，'
+            f'full_pose={bridge.get("full_pose")}，'
+            f'robot_id={bridge.get("robot_id")}，'
+            f'tx_busy={bridge.get("tx_busy_count", 0)}，'
+            f'reconnect={bridge.get("reconnect_count", 0)}'
+        )
     if yaw_n > 0 and pose_n > 0:
         items.append(('6. 下位机串口回报', '正常',
-                      f'大转盘角度 {yaw_n/dur:.1f}Hz + 云台姿态 {pose_n/dur:.1f}Hz 均正常收到',
+                      f'大转盘角度 {yaw_n/dur:.1f}Hz + 云台姿态 {pose_n/dur:.1f}Hz 均正常收到{bridge_detail}',
                       '无需处理'))
     elif yaw_n > 0 or pose_n > 0:
         items.append(('6. 下位机串口回报', '注意',
-                      f'只收到一半（大转盘 {yaw_n/dur:.1f}Hz，云台姿态 {pose_n/dur:.1f}Hz）',
+                      f'只收到一半（大转盘 {yaw_n/dur:.1f}Hz，云台姿态 {pose_n/dur:.1f}Hz）{bridge_detail}',
                       '检查下位机是否同时开启导航回报与自瞄姿态上报，以及两端协议版本是否一致(NV v1 + 0x1022)'))
     else:
         items.append(('6. 下位机串口回报', '故障', '大转盘角度和云台姿态都是 0 帧',
@@ -165,6 +181,7 @@ def probe_live(duration: float, lidar_ip: str) -> dict:
         stderr=subprocess.DEVNULL,
     ).returncode == 0
     ttys = sorted(glob.glob('/dev/ttyACM*'))
+    serial_by_id = sorted(glob.glob('/dev/serial/by-id/usb-YueLuEmbedded*'))
 
     import rclpy
     from geometry_msgs.msg import Twist
@@ -181,6 +198,7 @@ def probe_live(duration: float, lidar_ip: str) -> dict:
         'duration_s': duration,
         'lidar_ping_ok': ping_ok,
         'tty_devices': ttys,
+        'serial_by_id': serial_by_id,
         'cloud_msgs': 0,
         'scan_msgs': 0,
         'scan_valid_rays': 0,
@@ -198,6 +216,7 @@ def probe_live(duration: float, lidar_ip: str) -> dict:
         'autoaim_target_msgs': 0,
         'autoaim_last_id': 0,
         'workflow_status': None,
+        'usb_bridge_status': None,
     }
 
     best_effort = QoSProfile(
@@ -237,6 +256,12 @@ def probe_live(duration: float, lidar_ip: str) -> dict:
         except Exception:
             pass
 
+    def on_bridge(msg: String):
+        try:
+            m['usb_bridge_status'] = json.loads(msg.data)
+        except Exception:
+            pass
+
     node.create_subscription(PointCloud2, '/livox/lidar', lambda _: m.__setitem__('cloud_msgs', m['cloud_msgs'] + 1), best_effort)
     node.create_subscription(LaserScan, '/scan', on_scan, 10)
     node.create_subscription(Odometry, '/Odometry', lambda _: m.__setitem__('odom_msgs', m['odom_msgs'] + 1), 10)
@@ -247,6 +272,7 @@ def probe_live(duration: float, lidar_ip: str) -> dict:
     node.create_subscription(AutoAimPose, '/autoaim/pose', lambda _: m.__setitem__('autoaim_pose_msgs', m['autoaim_pose_msgs'] + 1), 10)
     node.create_subscription(AutoAimTarget, '/autoaim/target', on_target, 10)
     node.create_subscription(String, '/sentry/async_workflow_status', on_wf, 10)
+    node.create_subscription(String, '/sentry/usb_bridge_status', on_bridge, 10)
 
     end = time.monotonic() + duration
     try:

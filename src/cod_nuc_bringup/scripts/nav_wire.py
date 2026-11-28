@@ -35,17 +35,27 @@ class Frame:
 class Parser:
     def __init__(self):
         self.buffer = bytearray()
+        self.frames_ok = 0
+        self.crc_errors = 0
+        self.resync_bytes = 0
 
     def feed(self, data):
         self.buffer.extend(data)
         frames = []
         while len(self.buffer) >= FRAME_SIZE:
             raw = self.buffer[:FRAME_SIZE]
-            if raw[:3] != b'NV\x01' or crc16(raw[:30]) != struct.unpack_from('<H', raw, 30)[0]:
+            if raw[:3] != b'NV\x01':
+                self.resync_bytes += 1
+                del self.buffer[0]
+                continue
+            if crc16(raw[:30]) != struct.unpack_from('<H', raw, 30)[0]:
+                self.crc_errors += 1
+                self.resync_bytes += 1
                 del self.buffer[0]
                 continue
             _, _, kind, sequence, sample_us, x, y, z, flags = HEADER.unpack(raw[:30])
             frames.append(Frame(kind, sequence, sample_us, (x, y, z), flags))
+            self.frames_ok += 1
             del self.buffer[:FRAME_SIZE]
         return frames
 
@@ -61,6 +71,7 @@ class ClockSync:
         self.samples = []
         self.offset_ns = None
         self.updated = float('-inf')
+        self.last_rtt_s = None
 
     def request(self, sequence, ros_ns, monotonic):
         self.pending = {sequence: (ros_ns, monotonic)}
@@ -79,6 +90,7 @@ class ClockSync:
         self.samples = self.samples[-20:]
         self.offset_ns = min(self.samples, key=lambda sample: sample[1])[2]
         self.updated = monotonic
+        self.last_rtt_s = elapsed
         return True
 
     def stamp(self, sample_us, ros_ns, monotonic):

@@ -120,6 +120,13 @@ def valid_target(frame):
 class Parser:
     def __init__(self):
         self.buffer = bytearray()
+        self.frames_ok = 0
+        self.crc8_errors = 0
+        self.crc16_errors = 0
+        self.length_errors = 0
+        self.validation_errors = 0
+        self.unknown_commands = 0
+        self.resync_bytes = 0
 
     def feed(self, data):
         self.buffer.extend(data)
@@ -128,17 +135,23 @@ class Parser:
             try:
                 start = self.buffer.index(SOF)
             except ValueError:
+                self.resync_bytes += len(self.buffer)
                 self.buffer.clear()
                 break
             if start:
+                self.resync_bytes += start
                 del self.buffer[:start]
             if len(self.buffer) < 5:
                 break
             if crc8(self.buffer[:4]) != self.buffer[4]:
+                self.crc8_errors += 1
+                self.resync_bytes += 1
                 del self.buffer[0]
                 continue
             payload_size = struct.unpack_from('<H', self.buffer, 1)[0]
             if payload_size > MAX_PAYLOAD:
+                self.length_errors += 1
+                self.resync_bytes += 1
                 del self.buffer[0]
                 continue
             frame_size = payload_size + 9
@@ -146,6 +159,8 @@ class Parser:
                 break
             raw = self.buffer[:frame_size]
             if crc16(raw[:-2]) != struct.unpack_from('<H', raw, frame_size-2)[0]:
+                self.crc16_errors += 1
+                self.resync_bytes += 1
                 del self.buffer[0]
                 continue
             command = struct.unpack_from('<H', raw, 5)[0]
@@ -154,6 +169,9 @@ class Parser:
                 if all(math.isfinite(value) for value in (yaw, pitch, roll, speed)):
                     frames.append(PoseFrame(raw[3], sample_ms, yaw, pitch, roll, speed,
                                             mode, robot_id))
+                    self.frames_ok += 1
+                else:
+                    self.validation_errors += 1
             elif command == FULL_POSE_COMMAND and payload_size == FULL_POSE_PAYLOAD.size:
                 values = FULL_POSE_PAYLOAD.unpack(raw[7:-2])
                 floats = values[:8]
@@ -161,10 +179,18 @@ class Parser:
                 if (all(math.isfinite(value) for value in floats) and norm2 > 1e-12 and
                         values[12] & 0xfc00 == 0):
                     frames.append(FullPoseFrame(raw[3], *values))
+                    self.frames_ok += 1
+                else:
+                    self.validation_errors += 1
             elif command == TARGET_COMMAND and payload_size == TARGET_PAYLOAD.size:
                 values = TARGET_PAYLOAD.unpack(raw[7:-2])
                 target = TargetFrame(raw[3], *values)
                 if valid_target(target):
                     frames.append(target)
+                    self.frames_ok += 1
+                else:
+                    self.validation_errors += 1
+            else:
+                self.unknown_commands += 1
             del self.buffer[:frame_size]
         return frames

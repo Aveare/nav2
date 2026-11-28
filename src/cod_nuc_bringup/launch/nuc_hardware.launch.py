@@ -117,7 +117,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_lidar', default_value='true'),
         DeclareLaunchArgument('start_navigation', default_value='false'),
         DeclareLaunchArgument('start_serial', default_value='true'),
-        DeclareLaunchArgument('serial_port', default_value='/dev/ttyACM0'),
+        DeclareLaunchArgument('serial_port', default_value='auto'),
         DeclareLaunchArgument('enable_drive', default_value='false'),
         DeclareLaunchArgument('enable_autoaim', default_value='false'),
         DeclareLaunchArgument('start_async_workflow', default_value='false'),

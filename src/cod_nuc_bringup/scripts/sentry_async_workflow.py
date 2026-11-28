@@ -70,6 +70,13 @@ class SentryAsyncWorkflow(Node):
         self.pose_count = 0
         self.pose_at = float('-inf')
         self.last_pose_euler = (0.0, 0.0, 0.0)
+        self.last_pose_full = False
+        self.last_pose_valid_flags = 0
+        self.last_pose_mode = 0
+        self.last_robot_id = 0
+        self.last_projectile_speed = 0.0
+        self.bridge_status = None
+        self.bridge_status_at = float('-inf')
         self.target_count = 0
         self.target_at = float('-inf')
         self.target_id = 0
@@ -98,6 +105,9 @@ class SentryAsyncWorkflow(Node):
         )
         self.create_subscription(
             AutoAimTarget, '/autoaim/target', self._on_autoaim_target, 20, callback_group=self.aim_cb_group
+        )
+        self.create_subscription(
+            String, '/sentry/usb_bridge_status', self._on_bridge_status, 10, callback_group=self.status_cb_group
         )
 
         # Diagnostics & patrol timers
@@ -156,6 +166,20 @@ class SentryAsyncWorkflow(Node):
                 round(float(msg.pitch), 2),
                 round(float(msg.roll), 2),
             )
+            self.last_pose_full = bool(msg.full_pose)
+            self.last_pose_valid_flags = int(msg.valid_flags)
+            self.last_pose_mode = int(msg.mode)
+            self.last_robot_id = int(msg.robot_id)
+            self.last_projectile_speed = round(float(msg.projectile_speed), 2)
+
+    def _on_bridge_status(self, msg: String):
+        try:
+            parsed = json.loads(msg.data)
+        except Exception:
+            return
+        with self._lock:
+            self.bridge_status = parsed
+            self.bridge_status_at = self._now()
 
     def _on_autoaim_target(self, msg: AutoAimTarget):
         with self._lock:
@@ -258,6 +282,8 @@ class SentryAsyncWorkflow(Node):
             odom_fresh = (now - self.odom_at) <= 0.5
             cmd_fresh = (now - self.cmd_vel_at) <= 0.5
             big_yaw_fresh = (now - self.big_yaw_at) <= 0.5
+            bridge_fresh = (now - self.bridge_status_at) <= 1.5
+            bridge = self.bridge_status if (bridge_fresh and isinstance(self.bridge_status, dict)) else None
             payload = {
                 'nav_state': self.nav_state,
                 'nav_server_ready': self.nav_client.server_is_ready(),
@@ -277,6 +303,17 @@ class SentryAsyncWorkflow(Node):
                 'autoaim_pose_count': self.pose_count,
                 'autoaim_pose_hz': round(self.pose_count / elapsed, 1),
                 'autoaim_pose_deg': list(self.last_pose_euler),
+                'autoaim_full_pose': self.last_pose_full,
+                'autoaim_valid_flags': self.last_pose_valid_flags,
+                'autoaim_mode': self.last_pose_mode,
+                'robot_id': self.last_robot_id,
+                'projectile_speed': self.last_projectile_speed,
+                'usb_bridge_fresh': bridge_fresh,
+                'usb_bridge_connected': bool(bridge.get('connected')) if bridge else None,
+                'usb_drive_valid': bool(bridge.get('drive_valid')) if bridge else None,
+                'usb_clock_sync_ok': bool(bridge.get('clock_sync_ok')) if bridge else None,
+                'usb_reconnect_count': bridge.get('reconnect_count') if bridge else None,
+                'usb_tx_busy_count': bridge.get('tx_busy_count') if bridge else None,
                 'autoaim_target_fresh': aim_target_fresh,
                 'autoaim_target_count': self.target_count,
                 'autoaim_target_locked': bool(aim_target_fresh and self.target_id != 0),

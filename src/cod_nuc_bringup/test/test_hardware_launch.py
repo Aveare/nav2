@@ -68,6 +68,22 @@ class HardwareLaunchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'footprint'):
             hardware.setup(context)
 
+    def test_serial_bridge_defaults_to_auto_by_id_resolution(self):
+        context = self.context('localization')
+        context.launch_configurations['start_serial'] = 'true'
+        context.launch_configurations['serial_port'] = 'auto'
+        actions = hardware.setup(context)
+        serial_nodes = [
+            node for node in actions
+            if isinstance(node, Node) and perform_substitutions(
+                context, normalize_to_list_of_substitutions(node.node_executable)
+            ) == 'sentry_usb_bridge.py'
+        ]
+        self.assertEqual(len(serial_nodes), 1)
+        ld = hardware.generate_launch_description()
+        serial_arg = [e for e in ld.entities if getattr(e, 'name', None) == 'serial_port'][0]
+        self.assertEqual(perform_substitutions(context, serial_arg.default_value), 'auto')
+
 
 if __name__ == '__main__':
     unittest.main()

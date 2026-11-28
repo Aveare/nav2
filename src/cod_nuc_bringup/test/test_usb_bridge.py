@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 import unittest
@@ -10,9 +11,9 @@ from rclpy.time import Time
 from rm_interfaces.msg import AutoAimTarget
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
-from sentry_usb_bridge import SentryUSBBridge
+from sentry_usb_bridge import SentryUSBBridge, resolve_serial_port
 from nav_wire import Parser, Frame, COMMAND, FEEDBACK, SYNC_RESPONSE
-from rmcv_wire import Parser as RMCVParser, PoseFrame, TargetFrame
+from rmcv_wire import Parser as RMCVParser, FullPoseFrame, PoseFrame, TargetFrame
 
 
 class USBBridgeTest(unittest.TestCase):
@@ -130,6 +131,69 @@ class USBBridgeTest(unittest.TestCase):
         self.node.poll()
         self.assertEqual(self.node.last_pose_sample_ms, sample_ms)
         self.assertEqual(self.node.last_pose_stamp, now_ns)
+
+    def test_resolve_serial_port_prefers_by_id_and_falls_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            by_id = Path(tmp) / 'usb-YueLuEmbedded_Vision_Comm_port_TEST-if00'
+            by_id.write_text('', encoding='utf-8')
+            resolved = resolve_serial_port('auto', by_id_globs=(str(Path(tmp) / 'usb-YueLuEmbedded_*'),))
+            self.assertEqual(resolved, str(by_id))
+        self.assertEqual(resolve_serial_port('auto', by_id_globs=(), fallback_port='/dev/ttyACM9'), '/dev/ttyACM9')
+        self.assertEqual(resolve_serial_port('/dev/pts/42'), '/dev/pts/42')
+
+    def test_full_pose_status_diagnostics_and_zero_target_shoot_gate(self):
+        self.node.poll()
+        _ = self.read_bytes()
+
+        self.node.enable_autoaim = True
+        zero_target = AutoAimTarget()
+        zero_target.yaw, zero_target.pitch = 10.0, 2.0
+        zero_target.distance, zero_target.shoot, zero_target.target_id = 1.5, 2, 0
+        self.node.receive_target(zero_target)
+        time.sleep(.012)
+        self.node.poll()
+        targets = [frame for frame in self.rmcv_parser.feed(self.read_bytes())
+                   if isinstance(frame, TargetFrame)]
+        self.assertEqual(targets[-1].target_id, 0)
+        self.assertEqual(targets[-1].shoot, 0)
+
+        sample_ms = 2500
+        now_ns = self.node.get_clock().now().nanoseconds
+        self.node.clock.offset_ns = now_ns - sample_ms * 1000000
+        self.node.clock.updated = time.monotonic()
+        full_pose = FullPoseFrame(
+            12, 1.0, 0.0, 0.0, 0.0, 0.2, -0.3, 0.1, 23.5,
+            sample_ms, sample_ms, sample_ms, sample_ms, 0x03ff, 1, 107).encode()
+        os.write(self.master, full_pose[:29])
+        self.node.poll()
+        self.assertEqual(self.node.rx_full_pose_count, 0)
+        os.write(self.master, full_pose[29:])
+        self.node.poll()
+        self.assertEqual(self.node.rx_full_pose_count, 1)
+        self.assertTrue(self.node.last_pose_full)
+        self.assertEqual(self.node.last_pose_valid_flags, 0x03ff)
+        self.assertEqual(self.node.last_robot_id, 107)
+        self.assertEqual(self.node.last_pose_mode, 1)
+
+        status = self.node.build_status(time.monotonic(), now_ns)
+        self.assertTrue(status['connected'])
+        self.assertFalse(status['drive_valid'])
+        self.assertIn('enable_drive_false', status['drive_gate_reasons'])
+        self.assertTrue(status['clock_sync_ok'])
+        self.assertTrue(status['full_pose'])
+        self.assertEqual(status['robot_id'], 107)
+        self.assertEqual(status['rx_full_pose_count'], 1)
+
+        self.node.last_sample_us = 9999999
+        self.node.pose_feedback(
+            FullPoseFrame(13, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                          100, 100, 100, 100, 0x0001, 0, 0),
+            now_ns, time.monotonic())
+        self.assertIsNone(self.node.last_sample_us)
+        self.assertIsNone(self.node.clock.offset_ns)
+
+        self.node.disconnect(OSError('simulated unplug'))
+        self.assertEqual(self.node.reconnect_count, 1)
 
 
 if __name__ == '__main__':

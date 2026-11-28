@@ -20,6 +20,9 @@ class RMCVWireTest(unittest.TestCase):
         for index in range(0, len(stream), 7):
             result.extend(parser.feed(stream[index:index+7]))
         self.assertEqual(result, [pose, pose])
+        self.assertEqual(parser.frames_ok, 2)
+        self.assertGreaterEqual(parser.crc16_errors, 1)
+        self.assertGreater(parser.resync_bytes, len(b'NV\x01noise'))
 
     def test_target_validation_and_size(self):
         target = TargetFrame(3, 30.0, -5.0, .25, -.125, 1.0, -2.0, 4.5, 1, 3)
@@ -51,7 +54,9 @@ class RMCVWireTest(unittest.TestCase):
         invalid = bytearray(raw)
         invalid[55:57] = (0xfc00).to_bytes(2, 'little')
         invalid[-2:] = crc16(invalid[:-2]).to_bytes(2, 'little')
-        self.assertEqual(Parser().feed(invalid), [])
+        bad_parser = Parser()
+        self.assertEqual(bad_parser.feed(invalid), [])
+        self.assertEqual(bad_parser.validation_errors, 1)
 
 
 if __name__ == '__main__':

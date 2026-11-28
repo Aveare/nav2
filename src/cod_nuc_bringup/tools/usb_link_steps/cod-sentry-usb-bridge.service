@@ -1,0 +1,15 @@
+[Unit]
+Description=COD Sentry Unified USB CDC Bridge (NV v1 + RMCV 0x1022/0x0503)
+After=default.target
+
+[Service]
+Type=simple
+Environment=TZ=Asia/Shanghai
+ExecStart=/usr/bin/env bash -lc 'source /home/rm/cod_deploy/env.sh && exec ros2 run cod_nuc_bringup sentry_usb_bridge.py --ros-args -p port:=auto -p enable_drive:=false -p enable_autoaim:=false'
+KillSignal=SIGINT
+TimeoutStopSec=5
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

@@ -18,6 +18,9 @@ class NavWireTest(unittest.TestCase):
         for byte in stream:
             result.extend(parser.feed(bytes([byte])))
         self.assertEqual(result, [frame, frame])
+        self.assertEqual(parser.frames_ok, 2)
+        self.assertGreaterEqual(parser.crc_errors, 1)
+        self.assertEqual(parser.resync_bytes, len(b'garbage') + len(corrupted))
 
     def test_nonfinite_and_speed_limits(self):
         for value in (float('nan'), float('inf'), float('-inf'), .36):
@@ -29,6 +32,7 @@ class NavWireTest(unittest.TestCase):
         sync = ClockSync()
         sync.request(7, 10000000000, 1.0)
         self.assertTrue(sync.response(Frame(SYNC_RESPONSE, 7, 2000000), 10010000000, 1.01))
+        self.assertAlmostEqual(sync.last_rtt_s, 0.01)
         self.assertEqual(sync.stamp(2000000, 10020000000, 1.02), 10005000000)
         self.assertIsNone(sync.stamp(2000000, 10020000000, 4.0))
         self.assertIsNone(sync.stamp(1000000, 10020000000, 1.02))
