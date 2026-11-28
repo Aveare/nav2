@@ -7,7 +7,8 @@ for name in ['Drivers','Middlewares','apps/sentry','Inc','framework','ports','co
     parent=root/name
     includes += [parent]+sorted(p for p in parent.rglob('*') if p.is_dir())
 files=['apps/sentry/autonomy/autonomy.c','apps/sentry/app/assembly.c','apps/sentry/app/sentry_hooks.c',
-       'apps/sentry/cmd/cmd_remote.c','apps/sentry/cmd/robot_cmd.c','components/ax650/ax650_usb.c',
+       'apps/sentry/cmd/cmd_remote.c','apps/sentry/cmd/robot_cmd.c','components/ax650/ax650_pose.c',
+       'apps/sentry/autonomy/vision_link.c','components/navigation/nav_protocol.c',
        'components/imu/ins_task.c',
        'apps/sentry/chassis/chassis.c','apps/sentry/gimbal/gimbal.c','components/motor/dm/dm_motor.c',
        'ports/stm32f4/usb_port.c','ports/freertos/kernel_freertos.c','Src/usbd_cdc_if.c']

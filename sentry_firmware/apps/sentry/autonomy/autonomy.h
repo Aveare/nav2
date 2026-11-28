@@ -36,6 +36,12 @@ typedef struct
 void autonomy_init(void);
 void autonomy_task(void);
 
+/** 运行期调试标志:置 1 时强制进入比赛自动寻敌+自瞄状态(默认值=SENTRY_MATCH_FORCE_START)。 */
+extern volatile uint8_t sentry_rt_match_force_start;
+
+/** 裁判系统比赛进行中(game_progress==4)或强制标志置 1 时返回 1,否则返回 0。 */
+uint8_t autonomy_is_match_started(void);
+
 /** 200Hz cmd 任务读取最新底盘命令;返回 1 表示有效。单位 mm/s、右正、deg/s。 */
 int autonomy_get_command(sentry_auto_cmd_t *command);
 

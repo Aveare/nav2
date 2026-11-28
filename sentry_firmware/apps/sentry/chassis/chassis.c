@@ -50,6 +50,12 @@ static sentry_chassis_feed_t chassis_fb;
 
 /* 运行期可写(ELF/DWARF):导航平移斜坡 mm/s^2;默认=config。 */
 volatile float sentry_rt_nav_accel_mm_s2 = SENTRY_NAVIGATION_ACCEL_MM_S2;
+/* 运行期可写(ELF/DWARF):小陀螺自转速度 deg/s,默认=config;台架变转速不重烧,
+ * 大yaw摩擦前馈按关节速度软符号,方向/速度变化自动跟随。 */
+volatile float sentry_rt_rotate_speed_dps = CHASSIS_ROTATE_SPEED;
+/* 运行期可写(ELF/DWARF):正弦变速幅值 deg/s(0=恒速)与周期 ms。 */
+volatile float sentry_rt_rotate_sine_amp_dps = SENTRY_ROTATE_SINE_AMP_DPS;
+volatile float sentry_rt_rotate_sine_period_ms = SENTRY_ROTATE_SINE_PERIOD_MS;
 
 void chassis_init(void)
 {
@@ -175,8 +181,28 @@ void chassis_task(void)
     }
 
     case CHASSIS_ROTATE:
-        chassis_cmd_recv.wz = CHASSIS_ROTATE_SPEED;
+    {
+        /* 正弦变速自转(恒正):wz = 基速 + amp·sin(2πt/T)。
+         * 基速/幅值/周期运行期可写;基速非法回退 config,合成结果夹 ±600(防峰值跳变,
+         * 不整拍回退);amp≤0 退化为恒速。峰值功率由限幅器兜底(100W 档)。 */
+        float wz = sentry_rt_rotate_speed_dps;
+        if (!isfinite(wz) || wz < 30.0f || wz > 600.0f)
+            wz = CHASSIS_ROTATE_SPEED;
+        float amp = sentry_rt_rotate_sine_amp_dps;
+        if (!(amp >= 0.0f && amp <= 300.0f))
+            amp = SENTRY_ROTATE_SINE_AMP_DPS;
+        if (amp > 0.5f)
+        {
+            float period = sentry_rt_rotate_sine_period_ms;
+            if (!(period >= 500.0f && period <= 10000.0f))
+                period = SENTRY_ROTATE_SINE_PERIOD_MS;
+            wz += amp * sinf(fmodf(now_ms, period) / period * FW_TWO_PI);
+        }
+        if (wz > 600.0f) wz = 600.0f;
+        else if (wz < -600.0f) wz = -600.0f;
+        chassis_cmd_recv.wz = wz;
         break;
+    }
 
     default: /* CHASSIS_ZERO_FORCE:不改 wz,下方停电机 */
         break;

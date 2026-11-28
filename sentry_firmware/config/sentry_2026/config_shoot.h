@@ -21,7 +21,8 @@
 
 /* ---------------- 射速 ---------------- */
 
-#define SHOOT_RATE_DEFAULT 6.0f    /* [待实测] 常规请求射速,发/s */
+#define SHOOT_RATE_DEFAULT 12.0f   /* [用户 2026-11-28] 常规请求射速,发/s;12 发/s。
+        * 12rps×10J=120J/s > 30J/s 冷却:持续射击由热量守卫自动降档(260J 满弹约 2.9s 后回落) */
 #define SHOOT_RATE_MAX 20.0f       /* [安全] 请求射速绝对上限,发/s */
 #define SHOOT_RATE_ECO 3.0f        /* [换算] 30 冷却 / 10 每发 = 3 发/s 热量平衡 */
 #define SHOOT_RATE_BURST 12.0f     /* [待实测] 爆发请求射速,发/s */
@@ -35,7 +36,8 @@
 
 /* ---------------- 摩擦轮 ---------------- */
 
-#define SHOOT_FRICTION_TARGET_RPM 4000.0f   /* [待实测] 摩擦轮目标转速,RPM(转子) */
+#define SHOOT_FRICTION_TARGET_RPM 6900.0f   /* [同步兵 2026-11-28] 摩擦轮目标转速,RPM(转子);
+        * 步兵实测定值:6900 RPM ≈ 24 m/s(同款 M3508/轮组假设,弹速需裁判系统实测复核) */
 #define SHOOT_FRICTION_READY_TOL_RPM 500.0f /* [理论] 到速容差,RPM */
 #define SHOOT_FRICTION_RPM_OFFSET 0.0f      /* [待实测] 弹速标定微调,RPM */
 #define SHOOT_FRICTION_REVERSE_L 0 /* RM_shaobin2 current configuration */

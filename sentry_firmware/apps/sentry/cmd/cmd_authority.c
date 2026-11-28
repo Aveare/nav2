@@ -13,6 +13,7 @@
 #include "ins_task.h"
 #include "general_def.h"
 #include "log_port.h"
+#include "autonomy.h"
 
 typedef enum
 {
@@ -25,6 +26,7 @@ typedef enum
 static cmd_authority_source_e authority_source;
 static cmd_authority_source_e authority_source_last;
 static uint8_t unlock_logged;
+static uint8_t dial_stop_latched;
 
 static void cmd_apply_safe_outputs(void)
 {
@@ -44,16 +46,26 @@ static void cmd_apply_safe_outputs(void)
 void cmd_authority_arbitrate(void)
 {
     // 1. 裁决
+    const uint8_t rc_online = remote_control_is_online();
+    const uint8_t match_headless =
+        (uint8_t)(!SENTRY_AUTH_RC_LOST_STOP && !rc_online && autonomy_is_match_started());
 #if SENTRY_AUTH_RC_LOST_STOP
-    if (!remote_control_is_online())
+    if (!rc_online)
         authority_source = AUTH_RC_LOST;
     else
 #endif
-        if (REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_left) ||
-            REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right))
+        if (rc_online &&
+            (REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_left) ||
+             REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right)))
+    {
         authority_source = AUTH_KILL_SWITCH;
-    else if (rc_data[RC_SLOT_CURRENT].rc.dial > SHOOT_DIAL_STOP_THRESHOLD ||
-             robot_state == ROBOT_STATUS_STOP)
+    }
+    else if (rc_online && rc_data[RC_SLOT_CURRENT].rc.dial > SHOOT_DIAL_STOP_THRESHOLD)
+    {
+        dial_stop_latched = 1u;
+        authority_source = AUTH_STOP_LATCHED;
+    }
+    else if (dial_stop_latched || (robot_state == ROBOT_STATUS_STOP && !match_headless))
         authority_source = AUTH_STOP_LATCHED;
     else
         authority_source = AUTH_RUN;
@@ -88,7 +100,7 @@ void cmd_authority_arbitrate(void)
         cmd_apply_safe_outputs();
 
     // 5. 解锁:右上 + 左中 + 全回中;解锁沿只重锚定世界 yaw / pitch
-    if (remote_control_is_online() && REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right) &&
+    if (rc_online && REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right) &&
         REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left) &&
         MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.dial) <= PROTECT_AUTH_NEUTRAL_DEADBAND &&
         MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.rocker_l_) <= PROTECT_AUTH_NEUTRAL_DEADBAND &&
@@ -96,6 +108,7 @@ void cmd_authority_arbitrate(void)
         MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.rocker_r_) <= PROTECT_AUTH_NEUTRAL_DEADBAND &&
         MATH_ABS(rc_data[RC_SLOT_CURRENT].rc.rocker_r1) <= PROTECT_AUTH_NEUTRAL_DEADBAND)
     {
+        dial_stop_latched = 0u;
         robot_state = ROBOT_STATUS_READY;
         /* 停机期间手转/随动会积累世界角误差,解锁瞬间重锚定,避免角度环满输出猛甩 */
         gimbal_cmd.big_yaw = gimbal_fb_recv.big_yaw_world_deg;
@@ -109,6 +122,22 @@ void cmd_authority_arbitrate(void)
             LOG_INFO("[CMD] reinstate, robot ready");
             unlock_logged = 1u;
         }
+    }
+    else if (match_headless && !dial_stop_latched && robot_state == ROBOT_STATUS_STOP)
+    {
+        robot_state = ROBOT_STATUS_READY;
+        gimbal_cmd.big_yaw = gimbal_fb_recv.big_yaw_world_deg;
+        gimbal_cmd.pitch = 0.0f;
+        if (!unlock_logged)
+        {
+            LOG_INFO("[CMD] match headless ready");
+            unlock_logged = 1u;
+        }
+    }
+    else if (!SENTRY_AUTH_RC_LOST_STOP && !rc_online && !autonomy_is_match_started())
+    {
+        robot_state = ROBOT_STATUS_STOP;
+        unlock_logged = 0u;
     }
     else
         unlock_logged = 0u;

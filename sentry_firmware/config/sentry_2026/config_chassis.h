@@ -21,9 +21,15 @@
 
 /* ---------------- 底盘速度 ---------------- */
 
-#define CHASSIS_MAX_SPEED 2000.0f    /* [配置 2026-11-27] 平移最大速度,mm/s;用户指定 2000 */
-#define CHASSIS_ROTATE_SPEED 300.0f  /* [配置 2026-11-27] 自转暂降 502→300 复测断电:单跑 5373 rpm,
-                                      * 模型估算 60~80 W;若断电消失即功率缓冲问题(见临时排障结论) */
+#define CHASSIS_MAX_SPEED 3000.0f    /* [用户 2026-11-28] 平移最大速度,mm/s;2000→3000,
+                                      * 由功率限幅(100W 档)兜底,轮速上限仍在 limit_output 收口 */
+#define CHASSIS_ROTATE_SPEED 300.0f  /* [配置 2026-11-27] 自转基速,deg/s;运行期可写
+                                      * (sentry_rt_rotate_speed_dps)。功率实测:300°/s≈35-51W,
+                                      * 92W 预算内;500°/s≈304W 不可行(DEV-20261128-064135) */
+#define SENTRY_ROTATE_SINE_AMP_DPS 100.0f /* [用户 2026-11-28] 小陀螺正弦变速幅值,deg/s;
+        * wz = 基速 + amp·sin(2πt/T),恒正正弦(步兵经验:不反转,虚位/方向翻转瞬态小);
+        * amp=0 退化为恒速。300 基速时 wz∈[200,400],峰值功率由限幅兜底 */
+#define SENTRY_ROTATE_SINE_PERIOD_MS 3000.0f /* [理论] 正弦周期,ms;周期 3s(0.33Hz) */
 #define CHASSIS_FOLLOW_WZ_LIMIT 400.0f /* [待实测] 跟随律 wz 总限幅,deg/s;0=不限 */
 #define CHASSIS_TRANSLATE_BIAS_ANGLE 10.0f /* RM_shaobin2 current configuration */
 
@@ -94,12 +100,18 @@
 #define CHASSIS_POWER_SCALE_MIN 0.05f     /* [安全] 模型内部下限 */
 #define CHASSIS_POWER_BUFFER_MIN_SCALE 0.5f
 #define CHASSIS_POWER_BUFFER_MAX_J 60.0f
-#define CHASSIS_POWER_MODEL_SCALE 1.10f
+#define CHASSIS_POWER_MODEL_SCALE 1.00f
+/* [拟合-自洽 2026-11-28] 1.10→1.00:哨兵自转工况拟合(spin300/spin500,s≥0.99 样本 138 行,
+ * 残差 ~±2W)的拟合目标 p_pred 已含旧 SCALE=1.10 增益,SCALE 归一防双重放大(+21% 过保守)。
+ * 数据域=自转(i≤7A,w≤24000°/s);平移/刹车未采样,拟合方向偏保守(高速段预测更高)。
+ * 赛道级重拟合(台架电源真实功率/限幅不生效/全工况)见 params/功率标定操作卡.md。 */
 #define CHASSIS_POWER_MODEL_BIAS 0.0f
 #define CHASSIS_POWER_CURRENT_DIV 1000.0f
-#define CHASSIS_POWER_MODEL_K0 0.65213f
-#define CHASSIS_POWER_MODEL_K1 (-0.15659f)
-#define CHASSIS_POWER_MODEL_K2 0.00041660f
-#define CHASSIS_POWER_MODEL_K3 0.00235415f
-#define CHASSIS_POWER_MODEL_K4 0.20022f
-#define CHASSIS_POWER_MODEL_K5 0.000000108f
+#define CHASSIS_POWER_MODEL_K0 0.35978693f
+#define CHASSIS_POWER_MODEL_K1 (-0.02978966f)
+#define CHASSIS_POWER_MODEL_K2 0.001584845f
+#define CHASSIS_POWER_MODEL_K3 0.003953519f
+#define CHASSIS_POWER_MODEL_K4 0.1307853f
+#define CHASSIS_POWER_MODEL_K5 (-6.859309e-06f)
+/* [拟合-自洽 2026-11-28] 哨兵自标 K0..K5(替换步兵值);证据等级 [待实测-赛道],
+ * 台架/赛场以裁判功率与缓冲行为复核。 */

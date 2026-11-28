@@ -34,6 +34,9 @@ static sentry_gimbal_cmd_t gimbal_cmd_ut;
 static shoot_ctrl_cmd_t shoot_cmd_ut;
 static ax650_uart1_state_t ax650_state;
 static uint8_t ax650_tx_mode;
+static uint8_t vision_mode_ut;
+static vision_state_t vision_ut;
+static uint8_t match_started_ut;
 
 static uint32_t fake_ms = 1000;
 float dwt_get_delta_t(uint32_t *count)
@@ -59,11 +62,15 @@ void ax650_uart1_get_state(ax650_uart1_state_t *out)
 /* 视觉链路桩:本用例只验证手动 DBUS 链路,自瞄恒为无目标。 */
 void vision_link_set_mode(uint8_t mode)
 {
-    (void)mode;
+    vision_mode_ut = mode;
 }
 void vision_link_get_state(vision_state_t *out)
 {
-    memset(out, 0, sizeof(*out));
+    *out = vision_ut;
+    out->valid = (vision_ut.command_count != 0u &&
+                  (uint32_t)(fake_ms - vision_ut.rx_ms) <= SENTRY_NUC_RMCV_COMMAND_TIMEOUT_MS)
+                     ? 1u
+                     : 0u;
 }
 
 /* 导航桩:本用例不验证自动导航,恒无有效命令。 */
@@ -71,6 +78,11 @@ int autonomy_get_command(sentry_auto_cmd_t *command)
 {
     memset(command, 0, sizeof(*command));
     return 0;
+}
+
+uint8_t autonomy_is_match_started(void)
+{
+    return match_started_ut;
 }
 
 /* log_float_to_str桩:与bsp_log.c相同语义(整数.3位小数,带符号),供telemetry链接 */
@@ -223,6 +235,58 @@ int main(void)
     Unlock(); ArmFollow();
     RcFrame(0,0,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,17); Pump(); for(int i=0;i<20;++i) daemon_task(); Pump(); ExpectSafe();
     RcFrame(0,0,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18); Pump(); ExpectSafe();
+
+    /* match-start auto-scan + auto-aim transition */
+    Unlock();
+    msg_pub_t gimbal_feed_pub = msg_pub("gimbal_feed", sizeof(sentry_gimbal_feed_t));
+    sentry_gimbal_feed_t gimbal_feed_ut;
+    memset(&gimbal_feed_ut, 0, sizeof(gimbal_feed_ut));
+    match_started_ut = 1u;
+    RcFrame(0,0,0,0,REMOTE_RC_SW_MID,REMOTE_RC_SW_DOWN,0,18);
+    float min_target = 0.0f, max_target = 0.0f;
+    for (int i = 0; i < 1600; ++i)
+    {
+        msg_publish(gimbal_feed_pub, &gimbal_feed_ut);
+        Pump();
+        assert(vision_mode_ut == 1u);
+        assert(gimbal_cmd_ut.mode == GIMBAL_GYRO_MODE);
+        assert(fabsf(gimbal_cmd_ut.small_yaw_rate_deg_s) <= SENTRY_MATCH_SCAN_MAX_RATE_DEG_S + 1e-3f);
+        gimbal_feed_ut.small_yaw_target_deg += gimbal_cmd_ut.small_yaw_rate_deg_s * 0.005f;
+        gimbal_feed_ut.small_yaw_rel_deg = gimbal_feed_ut.small_yaw_target_deg;
+        if (gimbal_feed_ut.small_yaw_target_deg < min_target)
+            min_target = gimbal_feed_ut.small_yaw_target_deg;
+        if (gimbal_feed_ut.small_yaw_target_deg > max_target)
+            max_target = gimbal_feed_ut.small_yaw_target_deg;
+    }
+    assert(max_target > 80.0f && max_target <= SENTRY_MATCH_SCAN_AMP_DEG + 5.0f);
+    assert(min_target < -80.0f && min_target >= -(SENTRY_MATCH_SCAN_AMP_DEG + 5.0f));
+
+    /* target detected -> switches to AUTO_AIM + fire; target lost > hold -> resumes smooth scan */
+    vision_ut.command.yaw = 25.0f;
+    vision_ut.command.pitch = 2.0f;
+    vision_ut.command.shoot = 1u;
+    vision_ut.command.target_id = 3u;
+    vision_ut.command_count++;
+    vision_ut.rx_ms = fake_ms;
+    Pump();
+    assert(gimbal_cmd_ut.mode == GIMBAL_AUTO_AIM_MODE);
+    assert(gimbal_cmd_ut.aim_valid == 1u);
+    assert(shoot_cmd_ut.friction_mode == FRICTION_ON);
+    assert(shoot_cmd_ut.load_mode == LOADER_BURST);
+
+    vision_ut.command.target_id = 0u;
+    fake_ms += 400u;
+    msg_publish(gimbal_feed_pub, &gimbal_feed_ut);
+    Pump();
+    assert(gimbal_cmd_ut.mode == GIMBAL_GYRO_MODE);
+    assert(gimbal_cmd_ut.aim_valid == 0u);
+    assert(shoot_cmd_ut.friction_mode == FRICTION_OFF);
+    assert(shoot_cmd_ut.load_mode == LOADER_STOP);
+
+    /* kill switch always overrides match scan */
+    RcFrame(0,0,0,0,REMOTE_RC_SW_UP,REMOTE_RC_SW_MID,0,18); Pump(); ExpectSafe();
+    match_started_ut = 0u;
+
     puts("PASS: sentry DBUS four-way drive, steering/small-yaw split, spin exit, dial, mouse, safety and pitch stick deadband/rate/symmetric limits");
     return 0;
 }

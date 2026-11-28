@@ -112,7 +112,8 @@
                                              * 2.2 仍留 40% 余量。越界断力/软限位保护不变 */
 #define SENTRY_PITCH_ANGLE_KP 8.0f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
 #define SENTRY_PITCH_ANGLE_DEADBAND 0.5f    /* [待实测] 角度死区,deg */
-#define SENTRY_PITCH_MAX_SPEED_DEG_S 90.0f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
+#define SENTRY_PITCH_MAX_SPEED_DEG_S 150.0f /* [提速 2026-11-28] 90→150:响应限幅×1.6(用户选温和档);
+        * PID 增益不动,只松目标/输出限幅 */
 #define SENTRY_PITCH_ANGLE_IL 30.0f         /* [理论] 角度环积分限幅(当前控制链未引用:角度环无积分) */
 #define SENTRY_PITCH_SPEED_KP 0.6f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
 #define SENTRY_PITCH_SPEED_KI 0.2f /* [移植/待实测] RM_shaobin2，控制器使用 rad/rad/s/Nm */
@@ -246,7 +247,7 @@
 
 #define SENTRY_PITCH_TRAVEL_DEG 20.0f /* [移植/待实测] RM_shaobin2(当前控制链未引用:限位用 SENTRY_PITCH_MIN/MAX_DEG) */
 
-#define SENTRY_PITCH_RATE_DEG_S 60.0f /* [移植/待实测] RM_shaobin2,gimbal 内目标爬升限速,deg/s */
+#define SENTRY_PITCH_RATE_DEG_S 100.0f /* [提速 2026-11-28] 60→100:目标爬升限速×1.6 */
 
 #define SENTRY_PITCH_STICK_RATE_DEG_S 20.0f
 /* [配置 2026-11-28] 遥控左纵杆满量程的 pitch 目标积分速率,deg/s。
@@ -275,12 +276,12 @@
 #define SENTRY_AUTO_AIM_SMALL_TRIM_LP 0.03f
 /* [仿真] 小 yaw 慢速配平低通(每 5 ms)。大 yaw 承担快速世界环,小 yaw 只做慢配平,
  * 避免"小 yaw 吃掉全部误差、大 yaw 目标跟着自己走"在底盘持续旋转时失效。 */
-#define SENTRY_AUTO_AIM_PITCH_MAX_SPEED_DEG_S 150.0f
-/* [仿真] 自瞄 pitch 角度环输出上限,deg/s;普通模式 90。 */
+#define SENTRY_AUTO_AIM_PITCH_MAX_SPEED_DEG_S 180.0f
+/* [提速 2026-11-28] 150→180:自瞄档角度环输出上限同步×1.2(随手动档×1.6 走)。 */
 #define SENTRY_AUTO_AIM_PITCH_TORQUE_NM 1.5f
 /* [安全] 自瞄 pitch 力矩上限,N·m;与 SENTRY_PITCH_MAX_TORQUE_NM 一致。 */
-#define SENTRY_AUTO_AIM_PITCH_RATE_DEG_S 120.0f
-/* [仿真] 自瞄 pitch 目标爬升限速,deg/s;普通模式 60。 */
+#define SENTRY_AUTO_AIM_PITCH_RATE_DEG_S 150.0f
+/* [提速 2026-11-28] 120→150:自瞄 pitch 目标爬升限速同步提升。 */
 #define SENTRY_AUTO_AIM_YAW_OFFSET_DEG 0.0f
 /* [标定] 视觉世界 yaw 与 IMU 世界 yaw 的固定偏置,deg。
  * 若 NUC 已在 0x1021 同世界系下发则为 0;不一致时用静态目标标一次。 */

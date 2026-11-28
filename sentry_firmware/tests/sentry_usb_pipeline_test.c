@@ -27,6 +27,8 @@ static uint8_t rx_mirror[64];
 static uint8_t last_tx[64];
 static uint16_t last_tx_len;
 static uint8_t tx_1022;
+static referee_info_t referee_ut;
+static uint8_t referee_online_ut;
 
 uint32_t kernel_tick_ms(void) { return fake_ms; }
 uint32_t kernel_enter_critical(void) { return 0u; }
@@ -66,7 +68,7 @@ int msg_recv(msg_sub_t sub, void *output)
     return 0;
 }
 
-referee_info_t *referee_get_info(void) { return 0; }
+referee_info_t *referee_get_info(void) { return referee_online_ut ? &referee_ut : 0; }
 
 static void feed_usb(const uint8_t *data, uint16_t len)
 {
@@ -139,6 +141,22 @@ int main(void)
     autonomy_task();
     assert(tx_1022 == 1u);
     assert(last_tx_len == 61u);
+
+    /* match-start detection: referee game_progress==4 and runtime force flag */
+    sentry_rt_match_force_start = 0u;
+    referee_online_ut = 0u;
+    assert(autonomy_is_match_started() == 0u);
+    referee_online_ut = 1u;
+    referee_ut.init_flag = 1u;
+    referee_ut.GameState.game_progress = 3u;
+    assert(autonomy_is_match_started() == 0u);
+    referee_ut.GameState.game_progress = 4u;
+    assert(autonomy_is_match_started() == 1u);
+    referee_ut.GameState.game_progress = 5u;
+    assert(autonomy_is_match_started() == 0u);
+    sentry_rt_match_force_start = 1u;
+    assert(autonomy_is_match_started() == 1u);
+    sentry_rt_match_force_start = 0u;
 
     printf("sentry USB pipeline tests passed\n");
     return 0;

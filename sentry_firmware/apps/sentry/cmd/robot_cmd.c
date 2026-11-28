@@ -29,6 +29,9 @@ robot_status_e robot_state; // 机器人整体工作状态
 #include "autonomy.h"
 #include <math.h>
 
+#define CMD_SCAN_DT_S 0.005f
+#define CMD_TWO_PI 6.28318530718f
+
 /* ---------------- cmd 模块实例与消息 ---------------- */
 
 static msg_pub_t chassis_cmd_pub;
@@ -142,6 +145,78 @@ static void cmd_calc_offset_angle(void)
     chassis_cmd.offset_angle = 0.0f; // body-fixed translation, independent chassis steering
 }
 
+static void cmd_match_auto_set(void)
+{
+    const int aim_ctrl = auto_aim_active ? cmd_auto_aim_set() : 0;
+    chassis_cmd.chassis_mode = SENTRY_MATCH_SPIN_ENABLE ? CHASSIS_ROTATE : CHASSIS_NO_FOLLOW;
+    chassis_cmd.vx = 0.0f;
+    chassis_cmd.vy = 0.0f;
+    chassis_cmd.wz = 0.0f;
+    gimbal_cmd.mode = aim_ctrl ? GIMBAL_AUTO_AIM_MODE : GIMBAL_GYRO_MODE;
+    gimbal_cmd.small_yaw_rate_deg_s = 0.0f;
+    shoot_cmd.shoot_mode = SHOOT_ON;
+    shoot_cmd.fire_tier = cmd_fire_tier_get();
+    shoot_cmd.shoot_rate = cmd_fire_tier_rate();
+    if (aim_ctrl)
+    {
+        const uint8_t fire = (uint8_t)(SENTRY_AUTO_AIM_FIRE_ENABLE && auto_aim_fire_request);
+        shoot_cmd.friction_mode = fire ? FRICTION_ON : FRICTION_OFF;
+        shoot_cmd.load_mode = fire ? LOADER_BURST : LOADER_STOP;
+    }
+    else
+    {
+        shoot_cmd.friction_mode = FRICTION_OFF;
+        shoot_cmd.load_mode = LOADER_STOP;
+    }
+}
+
+static void cmd_match_small_yaw_scan_update(uint8_t match_active)
+{
+    static uint8_t scan_initialized;
+    static float scan_phase;
+    static float scan_dir = 1.0f;
+
+    const uint8_t manual_small_yaw =
+        (uint8_t)(remote_control_is_online() && input_source == INPUT_RC &&
+                  REMOTE_RC_SWITCH_IS_DOWN(rc_data[RC_SLOT_CURRENT].rc.switch_left) &&
+                  MATH_ABS((int)rc_data[RC_SLOT_CURRENT].rc.rocker_l_) >= CHASSIS_RC_DEADBAND);
+    const uint8_t scan_active =
+        (uint8_t)(match_active && robot_state == ROBOT_STATUS_READY &&
+                  gimbal_cmd.mode == GIMBAL_GYRO_MODE && !manual_small_yaw);
+    if (!scan_active)
+    {
+        scan_initialized = 0u;
+        return;
+    }
+
+    const float amp = SENTRY_MATCH_SCAN_AMP_DEG;
+    const float max_rate = SENTRY_MATCH_SCAN_MAX_RATE_DEG_S;
+    if (amp <= 1.0f || max_rate <= 1.0f)
+        return;
+    const float omega = max_rate / amp;
+
+    if (!scan_initialized)
+    {
+        float ratio = gimbal_fb_recv.small_yaw_rel_deg / amp;
+        MOTOR_LIMIT_MIN_MAX(ratio, -1.0f, 1.0f);
+        scan_phase = asinf(ratio);
+        if (scan_dir < 0.0f)
+            scan_phase = (0.5f * CMD_TWO_PI) - scan_phase;
+        scan_initialized = 1u;
+    }
+
+    scan_phase += omega * CMD_SCAN_DT_S;
+    if (scan_phase >= CMD_TWO_PI)
+        scan_phase -= CMD_TWO_PI;
+    scan_dir = (cosf(scan_phase) >= 0.0f) ? 1.0f : -1.0f;
+
+    const float desired_deg = amp * sinf(scan_phase);
+    const float ff_rate = amp * omega * cosf(scan_phase);
+    float rate = ff_rate + SENTRY_MATCH_SCAN_TRACK_KP * (desired_deg - gimbal_fb_recv.small_yaw_target_deg);
+    MOTOR_LIMIT_MIN_MAX(rate, -max_rate, max_rate);
+    gimbal_cmd.small_yaw_rate_deg_s = rate;
+}
+
 void cmd_task(void)
 {
     /* 1. 接收三路反馈 */
@@ -166,13 +241,15 @@ void cmd_task(void)
 
     /* 4. 输入源与自瞄选择(与步兵一致:左中挡 / 键鼠 Shift) */
     cmd_update_input_source();
+    const uint8_t match_active = autonomy_is_match_started();
     {
         const uint8_t dial_auto_aim =
             REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left);
         const uint8_t kbm_auto_aim = cmd_kbm_auto_aim_held();
         auto_aim_active =
             (uint8_t)(SENTRY_AUTO_AIM_ENABLE &&
-                      (dial_auto_aim || (input_source == INPUT_KBM && kbm_auto_aim)));
+                      (match_active || dial_auto_aim ||
+                       (input_source == INPUT_KBM && kbm_auto_aim)));
         vision_link_set_mode(auto_aim_active ? 1u : 0u);
     }
     if (input_source == INPUT_KBM)
@@ -180,6 +257,8 @@ void cmd_task(void)
     else if (REMOTE_RC_SWITCH_IS_MID(rc_data[RC_SLOT_CURRENT].rc.switch_left) ||
              REMOTE_RC_SWITCH_IS_DOWN(rc_data[RC_SLOT_CURRENT].rc.switch_left))
         cmd_remote_set();
+    else if (match_active && !SENTRY_AUTH_RC_LOST_STOP && !remote_control_is_online())
+        cmd_match_auto_set();
 
     /* 5. 手动回中:键鼠 F 或小陀螺切回跟随触发;解锁不再触发(DEV-20261126-05) */
 #if SENTRY_GIMBAL_RECENTER_ENABLE
@@ -230,6 +309,8 @@ void cmd_task(void)
             yaw_recentering = 0u;
         }
     }
+
+    cmd_match_small_yaw_scan_update(match_active);
 
     /* 6. 仲裁 */
     cmd_authority_arbitrate();

@@ -17,3 +17,12 @@
 #define SENTRY_AUTONOMY_ENGAGE_DISTANCE_MM 6000.0f /* [待实测] 交战距离阈值,mm */
 #define SENTRY_AUTONOMY_RETREAT_HP 100    /* [待实测] 撤退血量阈值 */
 #define SENTRY_AUTONOMY_MAX_WZ_DEG_S 180.0f /* [待实测] 自主转向角速度上限,deg/s */
+
+/* ---------------- 开局比赛自动寻敌与自瞄联动 ---------------- */
+
+#define SENTRY_MATCH_AUTO_ENABLE 1u /* [配置] 1=收到比赛开始(game_progress==4)或强制标志置 1 时自动寻敌+开自瞄 */
+#define SENTRY_MATCH_FORCE_START 0u /* [调试/开关] 1=无裁判系统时强制视为比赛开始(亦可用运行期 sentry_rt_match_force_start) */
+#define SENTRY_MATCH_SPIN_ENABLE 0u /* [安全] 1=无遥控器自主开局时底盘自动小陀螺;0=保持不跟随(待导航接管) */
+#define SENTRY_MATCH_SCAN_AMP_DEG 95.0f /* [理论] 小 yaw 寻敌往复摆幅(±deg),内缩于 ±115° 控制限位 */
+#define SENTRY_MATCH_SCAN_MAX_RATE_DEG_S 90.0f /* [理论] 小 yaw 正弦寻敌峰值角速度,deg/s */
+#define SENTRY_MATCH_SCAN_TRACK_KP 5.0f /* [理论] 小 yaw 正弦扫视轨迹跟踪纠偏增益,1/s */

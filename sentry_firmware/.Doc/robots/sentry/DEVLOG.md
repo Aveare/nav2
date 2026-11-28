@@ -49,6 +49,219 @@
 
 <!-- 格式:### DEV-YYYYMMDD-HHMMSS｜日期｜[SENTRY] 标题 -->
 
+### DEV-20261128-153543｜2026-11-28｜[SENTRY] 开局裁判/标志位触发小 yaw 平滑寻敌与自瞄联动
+
+**触发**。用户要求:从开局收到比赛开始消息(或电控标志位触发)时,小 yaw 持续四处平滑扫视寻找目标,并同步启动自瞄链路瞄准对面装甲板。
+
+**改动**(全部在 `sentry` 范围内)。
+- `config/sentry_2026/config_autonomy.h`:新增 `SENTRY_MATCH_AUTO_ENABLE`(1)、
+  `SENTRY_MATCH_FORCE_START`(0=仅裁判触发,改 1 可无裁判强制启动)、`SENTRY_MATCH_SPIN_ENABLE`(0)、
+  `SENTRY_MATCH_SCAN_AMP_DEG`(95°)、`SENTRY_MATCH_SCAN_MAX_RATE_DEG_S`(90°/s)、
+  `SENTRY_MATCH_SCAN_TRACK_KP`(5.0/s)。
+- `apps/sentry/autonomy/autonomy.{h,c}`:新增 `sentry_rt_match_force_start`(RAM 运行期可写)与
+  `autonomy_is_match_started()`,当 `SENTRY_MATCH_AUTO_ENABLE=1` 且 (`sentry_rt_match_force_start!=0`
+  或 `referee->init_flag && referee->GameState.game_progress==4`) 时返回 1。
+- `apps/sentry/cmd/robot_cmd.c`:`match_active=1` 时强制点亮 `auto_aim_active` 并调用
+  `vision_link_set_mode(1)`(`0x1022` 上送自瞄允许位);当处于 `ROBOT_STATUS_READY` 且未锁定目标
+  (`GIMBAL_GYRO_MODE`) 且左摇杆未手动接管小 yaw 时,通过 `cmd_match_small_yaw_scan_update()` 按正弦速度
+  + 目标角纠偏平滑扫视 `±95°`;视觉返回有效目标时立即切 `GIMBAL_AUTO_AIM_MODE` 跟踪并按 `shoot` 连发,
+  丢目标超时(`300 ms`)后从当前关节角平滑恢复扫视。另新增 `cmd_match_auto_set()` 支持无遥控自主模式
+  (`SENTRY_AUTH_RC_LOST_STOP=0`)。
+- `apps/sentry/cmd/{cmd_authority.c,cmd_autoaim.c}`:在 `SENTRY_AUTH_RC_LOST_STOP=1` 保持遥控失联
+  安全急停的前提下,补齐 `SENTRY_AUTH_RC_LOST_STOP=0` 时无遥控开局自动解锁、急停拨轮锁存及自瞄放行;
+  遥控急停挡与拨轮急停始终优先覆盖。
+- `tests/sentry_usb_pipeline_test.c`、`tests/usb_pipeline_stubs/referee_task.h`、
+  `tests/sentry_remote_test.c`:新增 `game_progress==0/3/4/5`、`sentry_rt_match_force_start`、
+  1600 拍正弦平滑扫视范围/速率边界、目标接入切换 `GIMBAL_AUTO_AIM_MODE`、丢目标恢复扫视及急停覆盖用例。
+
+**验证**。`tests/run_profile_tests.ps1` 全绿(含 `sentry_usb_pipeline_test`、`sentry_remote_test`、
+`tests/navigation/run_tests.py`);`tests/run_chassis_tests.ps1`、`tests/run_ax650_tests.ps1` PASS;
+`build.ps1 sentry -Current` 0 error(`firmware/sentry.elf` SHA256 `8FE20926...`,
+text 129,072 / data 764 / bss 128,936,RAM 55.4%,CCM 83.8%,`autonomy_is_match_started` 与
+`sentry_rt_match_force_start` 已在 ELF);`check_naming.py`/`check_macros.py`/`check_abi_golden.py`/
+`check_source_lists.py`/`check_sections.py`/`refactor_gate.py check-links` 全 PASS。未烧录未实车台架。
+
+**待实测(台架/赛场)**。①调试前可先设 `sentry_rt_match_force_start=1`(或 `SENTRY_MATCH_FORCE_START=1`)
+配合 NUC `enable_autoaim:=true` + `sp_vision` 验证扫视与自瞄切换;②按需在 `config_gimbal.h` 标定后打开
+`SENTRY_AUTO_AIM_PITCH_ENABLE=1`;③无遥控上场时将 `config_protect.h` `SENTRY_AUTH_RC_LOST_STOP` 置 `0`。
+
+**AI**:Gemini 4 Hydrogen,2026-11-28。
+
+### DEV-20261128-073157｜2026-11-28｜[SENTRY] 平移 3000mm/s + 小陀螺标准正弦变速
+
+**触发**。用户要求:①100W 功率控制内,平移给到 3000;②自转改成标准正弦函数变速转。
+
+**改动**。
+- `config_chassis.h`:`CHASSIS_MAX_SPEED 2000→3000 mm/s`(cmd 侧单点宏,遥控/键鼠自动跟随;
+  轮速上限仍由 limit_output 收口,功率由限幅兜底);新增 `SENTRY_ROTATE_SINE_AMP_DPS 100`
+  与 `SENTRY_ROTATE_SINE_PERIOD_MS 3000`。
+- `apps/sentry/chassis/chassis.c`:`CHASSIS_ROTATE` 改为 **wz = 基速 + amp·sin(2πt/T)**
+  恒正正弦变速(步兵经验:不反转,虚位/方向翻转瞬态小;大yaw摩擦前馈软符号天然兼容)。
+  基速/幅值/周期均运行期可写(`sentry_rt_rotate_speed_dps/_sine_amp_dps/_sine_period_ms`);
+  基速非法回退 config,合成结果夹 ±600(防峰值整拍跳变);amp=0 退化为恒速。
+  300 基速 + 100 幅值 → wz∈[200,400],峰值功率由限幅兜底。
+
+**验证**。`build.ps1 sentry -Current` 0 error;`run_profile_tests.ps1` 全绿、
+`run_chassis_tests.ps1` PASS;`sentry_rt_rotate_sine_*` 符号在 ELF。固件 SHA `66F78172…`
+已同步 RoboMaster 工作区;未烧录未台架。
+
+**待实测(台架)**。①正弦变速下 est_wz 跟随与波形(2Hz 遥测能看到起伏);②峰值 400°/s
+时功率/限幅动作(s 应周期性<1);③大yaw/小yaw 稳定性在变速下无恶化(摩擦前馈 2.5 在位);
+④平移 3000 全行程功率(88-92W 附近限幅属预期)。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
+### DEV-20261128-072827｜2026-11-28｜[SENTRY] 摩擦轮同步兵 6900RPM + 常规射速 12发/s + pitch 响应限幅×1.6
+
+**触发**。用户要求:①弹速与步兵保持一致(摩擦轮转速对齐);②射速 12 发/s(澄清:不是
+12 m/s 弹速,是每秒 12 发);③pitch 轴响应提速(选温和档=限幅×1.6)。
+
+**改动**(全部参数级,`config/sentry_2026/`)。
+- `config_shoot.h`:`SHOOT_FRICTION_TARGET_RPM 4000→6900`(步兵实测定值 6900RPM≈24m/s,
+  同款 M3508/轮组假设,弹速需裁判实测复核);`SHOOT_RATE_DEFAULT 6→12 发/s`
+  (12rps×10J=120J/s>30J/s 冷却,持续射击由热量守卫自动降档,260J 满弹约 2.9s 后回落;
+  ECO 3 / BURST 12 档不变;ready 判据为相对目标容差带,6900 自动适配)。
+- `config_gimbal.h`:`SENTRY_PITCH_RATE_DEG_S 60→100`、`SENTRY_PITCH_MAX_SPEED_DEG_S 90→150`、
+  `SENTRY_AUTO_AIM_PITCH_RATE_DEG_S 120→150`、`SENTRY_AUTO_AIM_PITCH_MAX_SPEED_DEG_S 150→180`;
+  PID 增益不动,只松目标爬升/速度上限——响应变快而稳定性不变。
+
+**验证**。`build.ps1 sentry -Current` 0 error;`run_profile_tests.ps1` 全绿。
+固件 SHA `28163D33…` 已同步 RoboMaster 工作区 `firmware/`,烧录生效;未烧录未台架。
+
+**待实测(台架)**。①摩擦轮 6900 到速、弹速裁判实测(预期≈24 m/s,偏差用
+`SHOOT_FRICTION_RPM_OFFSET` 微调);②12 发/s 连发观察热量守卫降档节奏;③pitch 推杆/
+自瞄跟踪响应,过冲则回 RATE 80/上限 120。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
+### DEV-20261128-064135｜2026-11-28｜[SENTRY] 功率自标定回填:哨兵 K0..K5 + SCALE 归一 + 转速-功率结论
+
+**触发**。用户指示:以模型自算值标定("误差已证明过小"),不再等台架电源读数。
+
+**数据**。纯 RTT 直读(游标分页+失败重认领)两轮:spin300(217+347 对)、spin500(39 对,
+2Hz×20s 全量=39,此前 347 对含积压复读)。全量落盘 `log/spin300_pwr_full.log`、
+`log/spin500_pwr_full.log`。
+
+**标定**。取限幅未生效(s≥0.99)样本 138 行 → `fit_power_model.py` 收敛,残差 ~±2W(<2%)。
+拟合目标 p_pred 已含旧 SCALE=1.10 增益,**SCALE 同步 1.10→1.00** 防双重放大(+21% 过保守)。
+回填 `config_chassis.h`:K0=0.3598 K1=-0.0298 K2=0.001585 K3=0.003954 K4=0.1308 K5=-6.86e-6,
+证据等级 [拟合-自洽/待实测-赛道](数据域=自转 i≤7A w≤24000°/s;平移/刹车未采样,
+拟合方向偏保守;台架裁判 p=0/be=0 无效,真实功率复核列待实测)。
+
+**限幅闭环验证(样本级)**。深度限幅(s<0.5)样本:spin300 的 p_post avg **91.4 vs lim 92,
+最大偏差 1.5W——闭环成立**;spin500 的 p_post 最大偏差 88.6W——**500 转速预算物理不够,
+限幅压不住**。
+
+**转速-功率结论(模型口径)**。自转 300°/s:p_pred avg ~35-51W,s 大部分≈1,限幅闭环 OK,
+**92W 预算内可跑**;自转 500°/s:p_pred avg 304W/max 774W,s 反复砸 0.20 地板,
+**不可行**。断电根因定量:无限幅时 350~774W 尖峰直通裁判,60J 缓冲 ~0.2s/次抽干
+→ "动不到 10s 断电";限幅打开后 300 转速不应再断电(待 30s 连转验证)。
+**建议:比赛自转速度维持 300;500 需要超电/换传动或接受严重削轮,不采用。**
+
+**验证**。`build.ps1 sentry -Current` 0 error;`sentry chassis power model tests` PASS
+(模型用例对新 K 全绿)。拟合输入存 `params/标定数据_自转自洽_20261128.csv`、输出 `build/power_model_snippet.h`(构建产物)。
+未烧录(车上仍为用户烧的 500 定速版);新 K 生效需下次烧录。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
+### DEV-20261128-063058｜2026-11-28｜[SENTRY] 前馈在线调参第二轮:RAM 复位坑 + 工具自动保前馈
+
+**触发**。ff25 轮采集发现 `sentry_rt_big_yaw_fric_ff_nm` 回 0——两轮之间车被断电,RAM
+运行期变量复位到 config 默认(0),该轮前馈未参与(漂移 2.6°/s 的"改善"不归功于前馈;
+振荡 |avg| 12.5°/s 与上轮同量级)。补写 2.5(verified)后再采时车已停,未取得自转对照。
+
+**工具修正**(`tests/sentry/spin_capture.js`):新增 `ensureFeedforward()`——采集前读
+`fric_ff`,偏离目标(`--ff`,默认 2.5)即自动补写并回读 verified;断电复位不再毁数据。
+
+**已确认**。写入 verified:true(readBack 2.5);ff25 轮补测:自转 est_wz 234→260,
+进入 3s 拖拽 23.2°(抓到起转瞬态,FF=0 状态),稳态 |世界角速度| 12.5°/s 振荡同上轮,
+过零 ~1.0 Hz(窗口不同,振荡主频需稳态段重估);RTT 该轮 0B(pending-host 复现,
+re-claim 在 ff25b 轮已验证有效)。**前馈效果对照待下轮**(FF=2.5 已在位)。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
+### DEV-20261128-062744｜2026-11-28｜[SENTRY] 联合采集首轮实车:工具三处修正 + 摩擦前馈 2.5 上车 + 小陀螺失稳定量
+
+**触发**。台架首轮采集:烧录 `f68b7d17`(06:18,功率限幅开)后三起三落——①采样数据全 0
+(条目形状假设错:实际为 `entry.values[name].value` 嵌套,扁平访问全 undefined→0);
+②RTT "pending-host"(车重启后旧会话失效;`rtt.start` 重新认领即恢复,采样会话会把 RTT
+让渡出去,块间读前必须重新 start);③20s 只抓到 4 对功率行(1s 采样块期间 1024B RTT 缓冲
+被遥测刷掉)。
+
+**工具修正**(`tests/sentry/spin_capture.js`):条目取值改嵌套路径并加 `sampleValue()`;
+块间读前 `rtt.start` 重新认领;采样块 50→25 点(0.5s,丢行减半);`--selftest` 保留。
+
+**首轮自转实测(spin300,450 点,est_wz 241→254,实际≈300)**:
+- 世界角 23s 净漂移 **82.4°**;|世界角速度| avg **12.7°/s**、max 65.7(判据 <2,远超);
+- 过零 ~150 次/23s → **~3.2 Hz 振荡**(与速度环 Kp4.2+两级输出 LPF 的相位裕度推算吻合);
+- 直流漂移 ~3.6°/s = 摩擦前馈 0 时积分填充慢拖拽(DEV-20261128-041921 根因①实锤);
+- |力矩| avg 2.83 Nm(稳态摩擦负载量级与 3.2~3.4 已知值一致);小yaw关节 ±2.4° 基本不动
+  (失稳全在大 yaw,母体晃动 1:1 传枪口);无卸力拍。
+- **处置**:运行期写 `sentry_rt_big_yaw_fric_ff_nm = 2.5`(非暂停写,verified 回读;静止时
+  软符号≈0 无感)。
+
+**功率侧(静止窗口)**:p_pred≈1.5W、s=0.999、lim=92(限幅在岗);台架裁判
+`[chcal] p=0.0 be=0.0`(PowerHeatTick>0 但字段无效)→ **台架真实功率必须用台架电源读数**,
+`be` 缓冲列在赛场前按无效处理;带裁判模块复核列入待实测。
+
+**验证**。`--selftest` PASS;修后采集链路实车验证:RTT 抓到 2009B(含 [pwr] lim=92 行)、
+yaw CSV 300 点(静止窗口,数值合理)。摩擦前馈效果待下轮起转复测(判据:漂移 <1°/s)。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
+### DEV-20261128-062230｜2026-11-28｜[SENTRY] 采集工具联调修正:工作区参数/缺失变量容错/离线自检
+
+**触发**。首次台架联调暴露三件事:①EmberProbe 桥按 **VS Code 工作区**绑定,采集脚本从本
+worktree 调不到(桥在 `C:/RoboMaster` 工作区,registry 端口 64872);②车上固件一度是旧版
+(05:49 pitch 版 `ae320e70`),变量地址与工作区 ELF(`f68b7d17`)错位,读数为垃圾
+(如大yaw力矩 -16.5 N·m > 上限 10,无效);③采集前车断电一次,"OpenOCD 未能建立采样连接"
+实为目标掉线,错误信息要直说。
+
+**另证**。`read.js`/`rtt.js` 脚本不传 budget 会无限挂起(桥本体 55ms 即回);带显式
+budget 的 `call()` 正常——spin_capture.js 全部走带预算 `call()`,不受影响。
+
+**改动**(`tests/sentry/spin_capture.js`)。
+- 新增 `--workspace <path>`:桥接/预检/产物路径都指向 EmberProbe 实际启用的工作区;
+- 预探(`variables.read`)自动剔除板上固件没有的变量(如 `sentry_rt_rotate_speed_dps`
+  不在 f68b7d17),不再整块失败;
+- 新增 `--selftest` 离线自检:合成 500 点 CSV(拖拽 12°/稳速 0.5°/s/力矩 3.3Nm/10% 卸力拍)
+  走完整摘要算路,断言全部命中——修掉自检样例自身的 limpPct 期望错(5/250 算成 10%);
+- 预探失败信息直指"车断电/未上电/探针脱落";样本不足时同样提示。
+
+**验证**。车上固件静态核实:12/12 采样变量符号在 `f68b7d17` ELF 中;`[pwri]/[pwr]/[chcal]`
+字符串在固件 rodata(板上固件确实发功率标定行);`node --check` + `--selftest` PASS;
+`power_capture.py selftest` PASS。实采待车重新上电起转(用户执行)。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
+### DEV-20261128-060446｜2026-11-28｜[SENTRY] 小陀螺联合采集(yaw稳定性+功率两路)+ 运行期自转速度
+
+**触发**。用户要求:小陀螺时同时读两路——①大yaw/小yaw 稳定性,②功率标定数据;并要求
+给出改自转速度的变量,然后开始采集。
+
+**改动**。
+- `apps/sentry/chassis/chassis.c`:新增运行期可写 `sentry_rt_rotate_speed_dps`(默认=
+  `CHASSIS_ROTATE_SPEED`=300),`CHASSIS_ROTATE` 分支改用之,越界(|wz|<30 或 >600)回退
+  config 防调试器误写;方向可为负(摩擦前馈按关节速度软符号,自动跟随)。
+- `config/sentry_2026/config_chassis.h`:`CHASSIS_ROTATE_SPEED` 注释登记运行期覆盖。
+- **新增 `tests/sentry/spin_capture.js`**(哨兵路径,不改共享 tools/):一次采集两路——
+  ①`variables.sample` 非暂停批量采样(50 点/块 @20ms)大yaw世界角/世界角速度/力矩/速度目标/
+  小yaw关节角/ref/前馈/注入系数/est_wz/mode/rearm/active → `<label>_Ns_yaw.csv`;
+  ②每块之间串行 `rtt.read` 落盘同窗口 RTT 文本([pwri]/[pwr] 在内)→ `<label>_Ns.log`,
+  事后 `rtt_pwr_to_csv.py --power W --append steady_raw.csv` 直接可用。
+  同进程串行调用天然互斥,不违反"采样期间勿开其他读变量工具";预检复用 ELF 身份/SHA 校验;
+  终端摘要直接给判据对照(进入 3s 拖拽 <10°、稳态 |世界角速度| <2°/s、力矩均值、卸力拍占比)。
+- `params/功率标定操作卡.md`:新增 §1b 联合采集与运行期变转速流程、spin400/500 变转速工况。
+
+**验证**。`node --check` 通过;`build.ps1 sentry -Current` 0 error/第一方 0 warning,
+text 128,184 / data 748 / bss 128,936;`sentry_rt_rotate_speed_dps` 符号在 ELF;
+`run_profile_tests.ps1` PASS。桥接采样与 RTT 读取需探针在线,未实采(台架执行);未烧录。
+
+**待实测(台架)**。按操作卡 §1b:`sentry_rt_rotate_speed_dps` 写目标转速 → `spin_capture.js`
+采集 → 功率侧行进 steady_raw.csv,yaw 侧行进小陀螺调参(DEV-20261128-041921 待实测项 1~4)。
+
+**AI**:GLM-5.3-Flash,2026-11-28。
+
 ### DEV-20261128-055920｜2026-11-28｜[SENTRY] 大 yaw 改解锁标定车头 + 底盘功率限幅打开（"哨兵 id 动几下就断电"）
 
 **触发**。①用户要求大 yaw 从"上电标定"改成"解锁标定";②抽象问题:裁判把机器人 id 设为**哨兵**时,平移或小陀螺动不到 10 s 就断电,设为**步兵**则正常。
@@ -112,6 +325,7 @@
 **待确认（台架）**。① 推杆是否跟随、松杆是否保持；② 有无过冲（过冲就把 `SENTRY_PITCH_INTEGRAL_NM` 收到 0.6）；③ 有无异响（有则降 `SENTRY_PITCH_TORQUE_NM`）;④ 稳定性符号仍待首推确认（反向写 `sentry_rt_pitch_torque_sign=-1`）;⑤ 跑通后下一步标重力前馈（`sentry_rt_pitch_gravity_a/b/phase_deg` 运行期可写，A 取负、phase≈0）。
 
 **AI**：GLM-5.4（WorkBuddy），2026-11-28。
+
 ### DEV-20261128-050643｜2026-11-28｜[SENTRY] 功率控制对齐步兵(制动轮退出预算)+ 标定采集工具链
 
 **触发**。用户要求:参考步兵功率控制写好哨兵的,并预写采集工具做到"秒启动、一次成功"。
@@ -664,6 +878,24 @@ FF=0 时合成 300°/s 关节运动力矩恒 0、重锚冻结-恢复路径语义
 - 未执行：烧录、实体 USB 枚举与 NUC 双端抓包；实体功能仍需现场验证。
 - 哨兵影响：[SENTRY] 仅 `apps/sentry/**`、`config/sentry_2026/**`、哨兵测试和 `.Doc/robots/sentry/**`；共享层与其他兵种无行为改动。
 - AI：OpenAI Codex（GPT-5）。
+
+### DEV-20261128-170200｜2026-11-28｜[SENTRY] 同步上游 6fa437e：开局自动寻敌与自瞄联动
+
+- 目标：把 `youyucat/RM-JIT-CR@sentry`（`6fa437e`，较本地基线新 114 个提交、其中 12 个为 sentry 独有）合入本地电控，保留本地 NV v1 导航与 RMCV `0x0503/0x1022` 共享 CDC 自瞄链路。
+- 合入范围（17 个上游优先文件 + 2 个新增）：
+  - 新增 `apps/sentry/autonomy/autonomy_is_match_started()`：`game_progress==4` 或运行期 `sentry_rt_match_force_start` 判定开赛。
+  - 新增 `cmd_match_auto_set()` / `cmd_match_small_yaw_scan_update()`：开赛后小 yaw 正弦扫视寻敌（±95°/90 deg/s，前馈 `amp*ω*cos(phase)` + 位置纠偏 `Kp*(desired-target)`），手动左挡+左横摇杆立即让位。
+  - 自瞄激活条件扩为 `SENTRY_AUTO_AIM_ENABLE && (match_active || dial_auto_aim || KBM Shift)`，开赛后无需拨杆。
+  - 底盘：`CHASSIS_MAX_SPEED 2000→3000 mm/s`；新增正弦变速自转 `wz = 基速 + amp·sin(2πt/T)`（基速 300°/s、幅值 100°/s、周期 3000 ms），`sentry_rt_rotate_speed_dps/_sine_amp_dps/_sine_period_ms` 运行期可写。
+  - 功率模型：回填哨兵自标定 `K0..K5`（0.35978693 / -0.02978966 / 0.001584845 / 0.003953519 / 0.1307853 / -6.859309e-06），`MODEL_SCALE 1.10→1.00` 归一防双重放大。
+  - 云台/发射：pitch 响应限幅 `MAX_SPEED 90→150`、`RATE 60→100`、自瞄档 `150→180 / 120→150`；射速 `6→12 发/s`；摩擦轮 `4000→6900 RPM`。
+  - 遥控仲裁：新增解拨盘锁存 `dial_stop_latched` 与 `match_headless`（无遥控器开赛不误判停车）。
+  - 新增 `.Doc/robots/sentry/params/标定数据_自转自洽_20261128.csv`、`tests/sentry/spin_capture.js`。
+- 保留本地：`tests/navigation/{navigation_test.c,run_tests.py,stubs/*}`（NV/0x0503/0x1022 黄金字节测试），上游无对应文件。
+- 测试桩修复（上游自身未覆盖）：`tests/sentry/usb_protocol/stubs/config.h` 补 `SENTRY_MATCH_AUTO_ENABLE/SENTRY_MATCH_FORCE_START`；`stubs/referee_task.h` 补 `GameState.game_progress`；`tests/navigation/stubs/referee_task.h` 同步补 `GameState`；`tests/navigation/check_syntax.py` 的 `ax650_usb.c` 更名 `ax650_pose.c` 并补 `vision_link.c`/`nav_protocol.c`。
+- 验证：ARM `build.ps1 sentry -Current` 0 error；FLASH 129,788 B (12.38%)、RAM 73 KB (57.03%)、CCMRAM 54,944 B (83.84%)。主机测试全 PASS：`run_tests.py` 4 组矩阵（feedback-only/drive-enabled × -O0/-Ofast -flto，NV/0x0503/0x1022 C/Python 字节一致）、sentry USB 六类消息 (-O0/-Ofast)、ax650 pose、vision link (-O0/-Ofast)、check_syntax 15/15、run_sentry_axis_tests、run_sentry_pitch_tests。
+- 未执行：未烧录、未台架、未整车。`SENTRY_MATCH_SCAN_AMP_DEG/MAX_RATE_DEG_S/TRACK_KP` 三项上游标 `[理论]`，须实车标定。`SENTRY_MATCH_SPIN_ENABLE=0`（底盘不自转，与导航接管互斥）。
+- AI：DeepSeek-V4.1-Flash,2026-11-28。
 
 ## 5. 历史
 

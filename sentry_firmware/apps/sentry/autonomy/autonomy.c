@@ -19,6 +19,8 @@
 
 #include <string.h>
 
+volatile uint8_t sentry_rt_match_force_start = SENTRY_MATCH_FORCE_START;
+
 /* USB FS 单次接收最多 64 字节;环满丢整包,不延长命令有效期。 */
 typedef struct
 {
@@ -206,5 +208,22 @@ int autonomy_get_command(sentry_auto_cmd_t *command)
     /* 安全:只读联调固件不得把已解析的 USB 速度泄漏到底盘 PID。 */
     memset(command, 0, sizeof(*command));
     return 0;
+#endif
+}
+
+uint8_t autonomy_is_match_started(void)
+{
+#if SENTRY_MATCH_AUTO_ENABLE
+    if (sentry_rt_match_force_start != 0u)
+        return 1u;
+#if SENTRY_NUC_RMCV_ENABLE
+    const referee_info_t *referee = referee_get_info();
+    return (uint8_t)(referee != NULL && referee->init_flag &&
+                     referee->GameState.game_progress == 4u);
+#else
+    return 0u;
+#endif
+#else
+    return 0u;
 #endif
 }

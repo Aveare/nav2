@@ -40,8 +40,10 @@ int cmd_auto_aim_set(void)
     vision_link_get_state(&vision);
     const uint8_t right_up =
         REMOTE_RC_SWITCH_IS_UP(rc_data[RC_SLOT_CURRENT].rc.switch_right);
+    const uint8_t rc_ok =
+        (uint8_t)(remote_control_is_online() ? !right_up : !SENTRY_AUTH_RC_LOST_STOP);
     const uint8_t valid =
-        (uint8_t)(robot_state == ROBOT_STATUS_READY && remote_control_is_online() && !right_up &&
+        (uint8_t)(robot_state == ROBOT_STATUS_READY && rc_ok &&
                   vision.valid && vision.command.target_id != 0u &&
                   isfinite(vision.command.yaw) && isfinite(vision.command.pitch));
 

@@ -20,8 +20,14 @@ typedef struct
 
 typedef struct
 {
+    uint8_t game_progress;
+} test_game_state_t;
+
+typedef struct
+{
     uint8_t init_flag;
     test_game_robot_state_t GameRobotState;
+    test_game_state_t GameState; /* 开局自动寻敌(DEV-20261128-153543)需要 game_progress */
     test_shoot_data_t ShootData;
 } referee_info_t;
 
